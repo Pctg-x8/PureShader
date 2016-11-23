@@ -2,10 +2,7 @@ module PSParser (Location(Location), LocatedString(LocatedString), initLocation,
     NumberType(..), ExpressionNode(..), parseExpression) where
 
 isSpace :: Char -> Bool
-isSpace ' ' = True
-isSpace '\t' = True
-isSpace '\n' = True
-isSpace _ = False
+isSpace c = c `elem` " \t"
 
 data Location = Location { line :: Int, column :: Int } deriving Eq
 instance Show Location where
@@ -80,10 +77,11 @@ countSatisfyElements f = impl 0 where
         _ -> n
 
 data PairDirection = Open | Close deriving Eq
-data CharacterClass = Ignore | InternalSymbol | Parenthese PairDirection | Symbol | Number | Other deriving Eq
+data CharacterClass = Ignore | InternalSymbol | LineFeed | Parenthese PairDirection | Symbol | Number | Other deriving Eq
 determineCharacterClass :: Char -> CharacterClass
 determineCharacterClass c
     | isSpace c = Ignore
+    | c == '\n' = LineFeed
     | c == '(' = Parenthese Open
     | c == ')' = Parenthese Close
     | c `elem` "+-*/<>$?" = Symbol
@@ -91,10 +89,6 @@ determineCharacterClass c
     | '0' <= c && c <= '9' = Number
     | otherwise = Other
 
-dropIgnores :: (a, LocatedString) -> ParseResult a
-dropIgnores (v, input) = Success $ case input of
-    LocatedString str@(c:_) loc | isSpace c -> let nSpaces = countSatisfyElements isSpace str in (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc))
-    _ -> (v, input)
 dropSpaces :: (a, LocatedString) -> ParseResult a
 dropSpaces (v, input) = Success $ case input of
     LocatedString str@(c:_) loc | c `elem` " \t" -> let nSpaces = countSatisfyElements (`elem` " \t") str in (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc))
