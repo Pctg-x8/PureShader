@@ -23,4 +23,4 @@ main = hspec $ do
             parseExpression (LocatedString "( 3)" initLocation) `shouldBe` Success (NumberConstExpr $ LocatedString "3" $ Location 1 3, LocatedString "" $ Location 1 5)
         it "returns Success with MemberRefExpr [LocatedString \"vin\" initLocation, LocatedString \"xyz\" $ Location 1 5]" $
             let Success (result, _) = parseExpression (LocatedString "vin.xyz" initLocation) in
-                result `shouldBe` (MemberRefExpr [LocatedString "vin" initLocation, LocatedString "xyz" $ Location 1 5])
+                result `shouldBe` MemberRefExpr [LocatedString "vin" initLocation, LocatedString "xyz" $ Location 1 5]

@@ -87,6 +87,8 @@ ensureCharacter :: Char -> (a, LocatedString) -> ParseResult a
 ensureCharacter c (v, input) = case input of
     LocatedString (x:xs) loc | x == c -> Success (v, LocatedString xs $ forward loc)
     _ -> Failed input
+ignorePrevious :: (LocatedString -> ParseResult a) -> (b, LocatedString) -> ParseResult a
+ignorePrevious f (_, r) = f r
 
 -- Primitive Parsing --
 parseNumber :: LocatedString -> ParseResult LocatedString
@@ -110,14 +112,13 @@ parseExpression :: LocatedString -> ParseResult ExpressionNode
 parseExpression = parsePrimaryTerm
 
 parsePrimaryTerm :: LocatedString -> ParseResult ExpressionNode
-parsePrimaryTerm input = case input of
-    LocatedString (c:_) _ -> case determineCharacterClass c of
-        Number -> NumberConstExpr <$> parseNumber input
-        Other -> (\memberRefs -> if length memberRefs == 1 then (IdentifierRefExpr . head) memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
-            memberRefs = (pure <$> parseIdentifier input) ->> dropSpaces ->> parseMemberRefCont where
-                parseMemberRefCont (v, input) = case input of
-                    LocatedString ('.':xs) loc -> into (next input) ->> dropSpaces ->> (\(_, r) -> (\x -> v ++ [x]) <$> parseIdentifier r) ->> dropSpaces ->> parseMemberRefCont
-                    _ -> Success (v, input)
-        Parenthese Open -> into (next input) ->> dropSpaces ->> (\(_, r) -> parseExpression r) ->> dropSpaces ->> ensureCharacter ')'
-        _ -> Failed input
+parsePrimaryTerm input@(LocatedString (c:_) _) = case determineCharacterClass c of
+    Number -> NumberConstExpr <$> parseNumber input
+    Parenthese Open -> into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
+    Other -> (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr . head $ memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
+        memberRefs = pure <$> parseIdentifier input ->> dropSpaces ->> parseMemberRefCont
+        parseMemberRefCont (v, input) = case input of
+            LocatedString ('.':xs) _ -> into (next input) ->> dropSpaces ->> (\(_, r) -> (\x -> v ++ [x]) <$> parseIdentifier r) ->> dropSpaces ->> parseMemberRefCont
+            _ -> Success (v, input)
     _ -> Failed input
+parsePrimaryTerm input = Failed input
