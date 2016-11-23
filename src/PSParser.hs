@@ -1,5 +1,5 @@
 module PSParser (Location(Location), LocatedString(LocatedString), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
-    ExpressionNode(IdentifierRefExpr, NumberConstExpr), parseExpression) where
+    ExpressionNode(..), parseExpression) where
 
 isSpace :: Char -> Bool
 isSpace ' ' = True
@@ -68,12 +68,14 @@ countSatisfyElements f = impl 0 where
         _ -> n
 
 data PairDirection = Open | Close deriving Eq
-data CharacterClass = Ignore | Parenthese PairDirection | Number | Other deriving Eq
+data CharacterClass = Ignore | InternalSymbol | Parenthese PairDirection | Symbol | Number | Other deriving Eq
 determineCharacterClass :: Char -> CharacterClass
 determineCharacterClass c
     | isSpace c = Ignore
     | c == '(' = Parenthese Open
     | c == ')' = Parenthese Close
+    | any (== c) "+-*/<>$?" = Symbol
+    | any (== c) "." = InternalSymbol
     | '0' <= c && c <= '9' = Number
     | otherwise = Other
 
@@ -81,6 +83,10 @@ dropSpaces :: (a, LocatedString) -> ParseResult a
 dropSpaces (v, input) = Success $ case input of
     LocatedString str@(c:_) loc | isSpace c -> let nSpaces = countSatisfyElements isSpace str in (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc))
     _ -> (v, input)
+ensureCharacter :: Char -> (a, LocatedString) -> ParseResult a
+ensureCharacter c (v, input) = case input of
+    LocatedString (x:xs) loc | x == c -> Success (v, LocatedString xs $ forward loc)
+    _ -> Failed input
 
 -- Primitive Parsing --
 parseNumber :: LocatedString -> ParseResult LocatedString
@@ -93,12 +99,12 @@ parseIdentifier input = case input of
     LocatedString (c:_) _ | determineCharacterClass c == Other -> Success $ takeStrOpt (\x -> determineCharacterClass x == Other) input
     _ -> Failed input
 
-
 -- Expression --
-data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr LocatedString deriving Eq
+data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr LocatedString | MemberRefExpr [LocatedString] deriving Eq
 instance Show ExpressionNode where
     show (IdentifierRefExpr loc) = "IdentifierRefExpr " ++ show loc
     show (NumberConstExpr loc) = "NumberConstExpr " ++ show loc
+    show (MemberRefExpr locs) = "MemberRefExpr " ++ show locs
 
 parseExpression :: LocatedString -> ParseResult ExpressionNode
 parseExpression = parsePrimaryTerm
@@ -107,9 +113,11 @@ parsePrimaryTerm :: LocatedString -> ParseResult ExpressionNode
 parsePrimaryTerm input = case input of
     LocatedString (c:_) _ -> case determineCharacterClass c of
         Number -> NumberConstExpr <$> parseNumber input
-        Other -> IdentifierRefExpr <$> parseIdentifier input
-        Parenthese Open -> into (next input) ->> dropSpaces ->> (\(_, r) -> parseExpression r) ->> dropSpaces ->> \(x, r) -> case r of
-            LocatedString (')':_) _ -> Success (x, next r)
-            _ -> Failed r 
+        Other -> (\memberRefs -> if length memberRefs == 1 then (IdentifierRefExpr . head) memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
+            memberRefs = (pure <$> parseIdentifier input) ->> dropSpaces ->> parseMemberRefCont where
+                parseMemberRefCont (v, input) = case input of
+                    LocatedString ('.':xs) loc -> into (next input) ->> dropSpaces ->> (\(_, r) -> (\x -> v ++ [x]) <$> parseIdentifier r) ->> dropSpaces ->> parseMemberRefCont
+                    _ -> Success (v, input)
+        Parenthese Open -> into (next input) ->> dropSpaces ->> (\(_, r) -> parseExpression r) ->> dropSpaces ->> ensureCharacter ')'
         _ -> Failed input
     _ -> Failed input
