@@ -1,5 +1,5 @@
 module PSParser (Location(Location), LocatedString(LocatedString), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
-    ExpressionNode(..), parseExpression) where
+    NumberType(..), ExpressionNode(..), parseExpression) where
 
 isSpace :: Char -> Bool
 isSpace ' ' = True
@@ -12,9 +12,16 @@ instance Show Location where
     show loc = line_str ++ ":" ++ column_str where
         line_str = show $ line loc
         column_str = show $ column loc
+-- A slice of string with its location on source
 data LocatedString = LocatedString String Location deriving Eq
 instance Show LocatedString where
     show (LocatedString str loc) = str ++ " at " ++ show loc
+class Concatable a where
+    (~~) :: a -> a -> a
+instance Concatable LocatedString where
+    (LocatedString sa l) ~~ (LocatedString sb _) = LocatedString (sa ++ sb) l
+append :: LocatedString -> String -> LocatedString
+append (LocatedString sa l) sb = LocatedString (sa ++ sb) l
 -- The result of Parser
 data ParseResult a = Success (a, LocatedString) | Failed LocatedString deriving Eq
 instance Show a => Show (ParseResult a) where
@@ -39,9 +46,14 @@ into l = Success ((), l)
 
 -- Continuous Parsing
 (->>) :: ParseResult a -> ((a, LocatedString) -> ParseResult b) -> ParseResult b
-infixl 1 ->>
+infixl 2 ->>
 (Success x) ->> f = f x
 (Failed r) ->> _ = Failed r
+-- Alternate Parsing
+(//) :: ParseResult a -> (LocatedString -> ParseResult a) -> ParseResult a
+infixl 1 //
+r@(Success x) // _ = r
+(Failed r) // f = f r
 
 initLocation :: Location
 initLocation = Location 1 1
@@ -74,15 +86,20 @@ determineCharacterClass c
     | isSpace c = Ignore
     | c == '(' = Parenthese Open
     | c == ')' = Parenthese Close
-    | any (== c) "+-*/<>$?" = Symbol
-    | any (== c) "." = InternalSymbol
+    | c `elem` "+-*/<>$?" = Symbol
+    | c `elem` "." = InternalSymbol
     | '0' <= c && c <= '9' = Number
     | otherwise = Other
 
-dropSpaces :: (a, LocatedString) -> ParseResult a
-dropSpaces (v, input) = Success $ case input of
+dropIgnores :: (a, LocatedString) -> ParseResult a
+dropIgnores (v, input) = Success $ case input of
     LocatedString str@(c:_) loc | isSpace c -> let nSpaces = countSatisfyElements isSpace str in (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc))
     _ -> (v, input)
+dropSpaces :: (a, LocatedString) -> ParseResult a
+dropSpaces (v, input) = Success $ case input of
+    LocatedString str@(c:_) loc | c `elem` " \t" -> let nSpaces = countSatisfyElements (`elem` " \t") str in (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc))
+    _ -> (v, input)
+
 ensureCharacter :: Char -> (a, LocatedString) -> ParseResult a
 ensureCharacter c (v, input) = case input of
     LocatedString (x:xs) loc | x == c -> Success (v, LocatedString xs $ forward loc)
@@ -91,43 +108,58 @@ ignorePrevious :: (LocatedString -> ParseResult a) -> (b, LocatedString) -> Pars
 ignorePrevious f (_, r) = f r
 
 -- Primitive Parsing --
-parseNumber :: LocatedString -> ParseResult LocatedString
-parseNumber input = case input of
-    LocatedString (c:_) _ | '0' <= c && c <= '9' -> Success $ takeStrOpt (\x -> determineCharacterClass x == Number) input
-    _ -> Failed input
+data NumberType = IntValue LocatedString | FloatingValue LocatedString deriving Eq
+instance Show NumberType where
+    show (IntValue locs) = "IntValue(" ++ show locs ++ ")"
+    show (FloatingValue locs) = "FloatingValue(" ++ show locs ++ ")"
+
+parseNumber :: LocatedString -> ParseResult NumberType
+parseNumber input@(LocatedString (c:_) _) | '0' <= c && c <= '9' = (Success $ takeStrOpt (\x -> determineCharacterClass x == Number) input) ->> parseMaybeFloating where
+    parseMaybeFloating (v, input@(LocatedString ('.':c:_) _)) | '0' <= c && c <= '9' = entireStr `seq` FloatingValue <$> Success entireStr where
+        entireStr = let (fpart, r) = takeStrOpt (\x -> determineCharacterClass x == Number) $ next input in ((v `append` ".") ~~ fpart, r)
+    parseMaybeFloating (v, r) = Success (IntValue v, r)
+parseNumber input = Failed input
 
 parseIdentifier :: LocatedString -> ParseResult LocatedString
 parseIdentifier input = case input of
-    LocatedString (c:_) _ | determineCharacterClass c == Other -> Success $ takeStrOpt (\x -> determineCharacterClass x == Other) input
+    LocatedString (c:_) _ | determineCharacterClass c == Other -> Success $ takeStrOpt (\x -> determineCharacterClass x `elem` [Other, Number]) input
     _ -> Failed input
 
 -- Expression --
-data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr LocatedString | MemberRefExpr [LocatedString] |
-    NegativeOpExpr ExpressionNode | InvertOpExpr ExpressionNode deriving Eq
+data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
+    NegativeOpExpr ExpressionNode | InvertOpExpr ExpressionNode | FunApplyExpr ExpressionNode [ExpressionNode] deriving Eq
 instance Show ExpressionNode where
     show (IdentifierRefExpr loc) = "IdentifierRefExpr " ++ show loc
     show (NumberConstExpr loc) = "NumberConstExpr " ++ show loc
     show (MemberRefExpr locs) = "MemberRefExpr" ++ show locs
     show (NegativeOpExpr expr) = "NegativeOp(" ++ show expr ++ ")"
     show (InvertOpExpr expr) = "InvertOp(" ++ show expr ++ ")"
+    show (FunApplyExpr fx vx) = "FunApplyExpr(" ++ show fx ++ " " ++ show vx ++ ")"
 
 parseExpression :: LocatedString -> ParseResult ExpressionNode
 parseExpression = parseUnaryTerm
 
 parseUnaryTerm :: LocatedString -> ParseResult ExpressionNode
-parseUnaryTerm input@(LocatedString (c:_) _)
-    | c == '-' = NegativeOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
-    | c == '~' = InvertOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
-    | otherwise = parsePrimaryTerm input
+parseUnaryTerm input@(LocatedString ('-':_) _) = NegativeOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
+parseUnaryTerm input@(LocatedString ('~':_) _) = InvertOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
+parseUnaryTerm input = parsePrimaryTerm input ->> (\(f, r) -> (\ret -> if null ret then f else FunApplyExpr f ret) <$> parseFunApplyArgsRec ([], r)) // (\_ -> parsePrimaryTerm input) where
+    parseFunApplyArgsRec (x, input@(LocatedString (c:_) _))
+        | c `elem` " \t" = into input ->> dropSpaces ->> (\(_, r) -> (\d -> x ++ [d]) <$> parsePrimaryTerm r) ->> parseFunApplyArgsRec
+    parseFunApplyArgsRec v = Success v
 
 parsePrimaryTerm :: LocatedString -> ParseResult ExpressionNode
 parsePrimaryTerm input@(LocatedString (c:_) _) = case determineCharacterClass c of
     Number -> NumberConstExpr <$> parseNumber input
+    _ -> parseFunctionCandidates input
+parsePrimaryTerm input = Failed input
+
+parseFunctionCandidates :: LocatedString -> ParseResult ExpressionNode
+parseFunctionCandidates input@(LocatedString (c:_) _) = case determineCharacterClass c of
     Parenthese Open -> into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
     Other -> (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr . head $ memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
-        memberRefs = pure <$> parseIdentifier input ->> dropSpaces ->> parseMemberRefCont
+        memberRefs = pure <$> parseIdentifier input ->> parseMemberRefCont
         parseMemberRefCont (v, input) = case input of
-            LocatedString ('.':xs) _ -> into (next input) ->> dropSpaces ->> (\(_, r) -> (\x -> v ++ [x]) <$> parseIdentifier r) ->> dropSpaces ->> parseMemberRefCont
+            LocatedString ('.':xs) _ -> into (next input) ->> dropSpaces ->> (\(_, r) -> (\x -> v ++ [x]) <$> parseIdentifier r) ->> parseMemberRefCont
             _ -> Success (v, input)
     _ -> Failed input
-parsePrimaryTerm input = Failed input
+parseFunctionCandidates input = Failed input
