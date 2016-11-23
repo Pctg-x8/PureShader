@@ -102,14 +102,23 @@ parseIdentifier input = case input of
     _ -> Failed input
 
 -- Expression --
-data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr LocatedString | MemberRefExpr [LocatedString] deriving Eq
+data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr LocatedString | MemberRefExpr [LocatedString] |
+    NegativeOpExpr ExpressionNode | InvertOpExpr ExpressionNode deriving Eq
 instance Show ExpressionNode where
     show (IdentifierRefExpr loc) = "IdentifierRefExpr " ++ show loc
     show (NumberConstExpr loc) = "NumberConstExpr " ++ show loc
-    show (MemberRefExpr locs) = "MemberRefExpr " ++ show locs
+    show (MemberRefExpr locs) = "MemberRefExpr" ++ show locs
+    show (NegativeOpExpr expr) = "NegativeOp(" ++ show expr ++ ")"
+    show (InvertOpExpr expr) = "InvertOp(" ++ show expr ++ ")"
 
 parseExpression :: LocatedString -> ParseResult ExpressionNode
-parseExpression = parsePrimaryTerm
+parseExpression = parseUnaryTerm
+
+parseUnaryTerm :: LocatedString -> ParseResult ExpressionNode
+parseUnaryTerm input@(LocatedString (c:_) _)
+    | c == '-' = NegativeOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
+    | c == '~' = InvertOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
+    | otherwise = parsePrimaryTerm input
 
 parsePrimaryTerm :: LocatedString -> ParseResult ExpressionNode
 parsePrimaryTerm input@(LocatedString (c:_) _) = case determineCharacterClass c of
