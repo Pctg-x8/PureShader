@@ -1,6 +1,8 @@
 PureShader
 ---
 
+[![Build Status](https://travis-ci.org/Pctg-x8/PureShader.svg?branch=master)](https://travis-ci.org/Pctg-x8/PureShader)
+
 A purely programmable shader frontend for SPIR-V
 
 ## Example
