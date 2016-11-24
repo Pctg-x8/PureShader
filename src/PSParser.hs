@@ -106,16 +106,15 @@ isPartOfIdentifier c = characterClass c `elem` [Other, Number]
 
 -- Parsing primitives generating void --
 dropSpaces :: (a, LocatedString) -> ParseResult a
-ensureCharacter :: Char -> (a, LocatedString) -> ParseResult a
-ignorePrevious :: (LocatedString -> ParseResult a) -> (b, LocatedString) -> ParseResult a
-
 dropSpaces (v, input) = Success $ case input of
     LocatedString str@(c:_) loc | c `elem` " \t" -> let nSpaces = countSatisfyElements (`elem` " \t") str in (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc))
     _ -> (v, input)
 
+ensureCharacter :: Char -> (a, LocatedString) -> ParseResult a
 ensureCharacter c (v, LocatedString (x:xs) loc) | x == c = Success (v, LocatedString xs $ forward loc)
 ensureCharacter _ (_, input) = Failed input
 
+ignorePrevious :: (LocatedString -> ParseResult a) -> (b, LocatedString) -> ParseResult a
 ignorePrevious f (_, r) = f r
 
 -- Primitive Parsing --
@@ -178,9 +177,8 @@ parseUnaryTerm input = parseFunctionCandidates input ->> parseFunApplyArgsRec //
 
 parsePrimaryTerm :: LocatedString -> ParseResult ExpressionNode
 parsePrimaryTerm input@(LocatedString ('[':_) _) = parseListTerm input
-parsePrimaryTerm input@(LocatedString (c:_) _)
-    | c `charClassOf` Number = NumberConstExpr <$> parseNumber input
-parsePrimaryTerm input = Failed input
+parsePrimaryTerm input@(LocatedString (c:_) _) | c `charClassOf` Number = NumberConstExpr <$> parseNumber input
+parsePrimaryTerm input = parseFunctionCandidates input
 
 parseFunctionCandidates :: LocatedString -> ParseResult ExpressionNode
 parseFunctionCandidates input@(LocatedString ('(':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'

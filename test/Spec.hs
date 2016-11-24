@@ -70,3 +70,10 @@ main = hspec $ do
         it "can parse \"[1..]\"" $
             let Success (res, _) = parseExpression $ LocatedString "[1..]" initLocation in
                 res `shouldBe` ListExpr [NumberConstExpr $ IntValue $ LocatedString "1" $ Location 1 2, ListRange]
+        it "can parse complex expression" $
+            let left = parseExpression $ LocatedString "buildUVs (transformVec4 pos pmatr.persp) $ swizzleByRepeatingToVec4 uv.xz" initLocation in
+                left `shouldSatisfy` parsingSucceeded
+
+parsingSucceeded :: ParseResult a -> Bool
+parsingSucceeded (Success _) = True
+parsingSucceeded _ = False
