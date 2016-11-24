@@ -30,8 +30,18 @@ main = hspec $ do
         it "can parse \"~ 0.0\"" $
             let Success (result, _) = parseExpression $ LocatedString "~ 0.0" initLocation in
                 result `shouldBe` InvertOpExpr (NumberConstExpr $ FloatingValue (LocatedString "0.0" $ Location 1 3))
-        it "can parse \"Vec4 0 0 0 1\"" $
-            let Success (result, _) = parseExpression $ LocatedString "Vec4 0 0 0 1" initLocation in
-                result `shouldBe` FunApplyExpr (IdentifierRefExpr $ LocatedString "Vec4" initLocation) [cz $ Location 1 6, cz $ Location 1 8, cz $ Location 1 10, co $ Location 1 12] where 
-                    cz l = NumberConstExpr $ IntValue (LocatedString "0" l)
-                    co l = NumberConstExpr $ IntValue (LocatedString "1" l)
+        it "can parse \"Vec4 0 0 0 1\"" $ case parseExpression $ LocatedString "Vec4 0 0 0 1" initLocation of
+            Success (result, _) -> result `shouldBe` expect where
+                expect = FunApplyExpr (FunApplyExpr (FunApplyExpr (FunApplyExpr name first) second) third) fourth
+                name = IdentifierRefExpr $ LocatedString "Vec4" initLocation
+                first = NumberConstExpr $ IntValue $ LocatedString "0" (Location 1 6)
+                second = NumberConstExpr $ IntValue $ LocatedString "0" (Location 1 8)
+                third = NumberConstExpr $ IntValue $ LocatedString "0" (Location 1 10)
+                fourth = NumberConstExpr $ IntValue $ LocatedString "1" (Location 1 12)
+        it "can parse \"(- 3)\" and returns funapply" $ 
+            let Success (result, _) = parseExpression $ LocatedString "(- 3)" initLocation in
+                result `shouldBe` FunApplyExpr (SymbolIdentExpr $ LocatedString "-" $ Location 1 2) (NumberConstExpr $ IntValue $ LocatedString "3" $ Location 1 4)
+        it "can parse \"3 3\" and returns the result which is same as \"3\"" $
+            let Success (res1, _) = parseExpression $ LocatedString "3 3" initLocation in
+                let Success (res2, _) = parseExpression $ LocatedString "3" initLocation in
+                    res1 `shouldBe` res2
