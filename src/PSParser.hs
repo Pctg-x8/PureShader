@@ -42,15 +42,22 @@ into :: LocatedString -> ParseResult ()
 into l = Success ((), l)
 
 -- Continuous Parsing
-(->>) :: ParseResult a -> ((a, LocatedString) -> ParseResult b) -> ParseResult b
+andThen, (->>) :: ParseResult a -> ((a, LocatedString) -> ParseResult b) -> ParseResult b
 infixl 2 ->>
 (Success x) ->> f = f x
 (Failed r) ->> _ = Failed r
+andThen = (->>)
 -- Alternate Parsing
-(//) :: ParseResult a -> (LocatedString -> ParseResult a) -> ParseResult a
+orElse, (//) :: ParseResult a -> (LocatedString -> ParseResult a) -> ParseResult a
 infixl 1 //
 r@(Success x) // _ = r
 (Failed r) // f = f r
+orElse = (//)
+-- Reducing a value
+reduce, (|=>) :: ((c, LocatedString) -> ParseResult a) -> (a -> b) -> (c, LocatedString) -> ParseResult b
+infixl 3 |=>
+reduce partialfunc reducer x = reducer <$> partialfunc x
+(|=>) = reduce
 
 initLocation :: Location
 initLocation = Location 1 1
@@ -166,7 +173,7 @@ parseUnaryTerm input@(LocatedString ('-':_) _) = NegativeOpExpr <$> (into (next 
 parseUnaryTerm input@(LocatedString ('~':_) _) = InvertOpExpr <$> (into (next input) ->> dropSpaces ->> ignorePrevious parseUnaryTerm)
 parseUnaryTerm input = parseFunctionCandidates input ->> parseFunApplyArgsRec // const (parsePrimaryTerm input) where
     parseFunApplyArgsRec (x, input@(LocatedString (c:_) _))
-        | c `elem` " \t" = into input ->> dropSpaces ->> (\(_, r) -> FunApplyExpr x <$> parsePrimaryTerm r) ->> parseFunApplyArgsRec
+        | c `elem` " \t" = into input ->> dropSpaces ->> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x ->> parseFunApplyArgsRec
     parseFunApplyArgsRec v = Success v
 
 parsePrimaryTerm :: LocatedString -> ParseResult ExpressionNode
@@ -177,26 +184,24 @@ parsePrimaryTerm input@(LocatedString (c:_) _) = case determineCharacterClass c 
 parsePrimaryTerm input = Failed input
 
 parseFunctionCandidates :: LocatedString -> ParseResult ExpressionNode
-parseFunctionCandidates input@(LocatedString (c:_) _) = case determineCharacterClass c of
-    Parenthese Open -> into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
-    Symbol -> SymbolIdentExpr <$> parseSymbolIdent input
-    Other -> (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr . head $ memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
-        memberRefs = pure <$> parseIdentifier input ->> parseMemberRefCont
-        parseMemberRefCont (v, input) = case input of
-            LocatedString ('.':xs) _ -> into (next input) ->> dropSpaces ->> (\(_, r) -> (\x -> v ++ [x]) <$> parseIdentifier r) ->> parseMemberRefCont
-            _ -> Success (v, input)
-    _ -> Failed input
+parseFunctionCandidates input@(LocatedString ('(':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
+parseFunctionCandidates input@(LocatedString (c:_) _)
+    | determineCharacterClass c == Symbol = SymbolIdentExpr <$> parseSymbolIdent input
+    | determineCharacterClass c == Other = (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr $ head memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
+        memberRefs = pure <$> parseIdentifier input ->> parseMemberRefRecursive
+        parseMemberRefRecursive (v, input@(LocatedString ('.':_) _)) = into (next input) ->> dropSpaces ->> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) ->> parseMemberRefRecursive
+        parseMemberRefRecursive v = Success v
 parseFunctionCandidates input = Failed input
 
 parseListTerm :: LocatedString -> ParseResult ExpressionNode
 parseListTerm input@(LocatedString ('[':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
     LocatedString (']':_) _ -> Success ([], next r)
     _ -> parseRangeOrExpression r ->> parseExpressionListRec where
-        parseExpressionListRec (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious (\r -> (++) x <$> parseRangeOrExpression r) ->> parseExpressionListRec
+        parseExpressionListRec (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious parseRangeOrExpression |=> (++) x ->> parseExpressionListRec
         parseExpressionListRec (x, r@(LocatedString (']':_) _)) = Success (x, next r)
         parseExpressionListRec (_, r) = Failed r
     ) where
         parseRangeOrExpression input = parseExpression input ->> dropSpaces ->> (\(x, r) -> case r of
-            LocatedString ('.':'.':_) _ -> into (next $ next r) ->> dropSpaces ->> (\(_, rt) -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
+            LocatedString ('.':'.':_) _ -> into (next $ next r) ->> dropSpaces ->> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
             _ -> Success ([x], r))
 parseListTerm input = Failed input
