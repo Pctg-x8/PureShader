@@ -135,7 +135,7 @@ parseSymbolIdent input = case input of
 -- Expression --
 data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
     SymbolIdentExpr LocatedString | ListExpr [ExpressionNode] | NegativeOpExpr ExpressionNode | InvertOpExpr ExpressionNode |
-    FunApplyExpr ExpressionNode ExpressionNode | BinaryExpr ExpressionNode ExpressionNode ExpressionNode deriving Eq
+    FunApplyExpr ExpressionNode ExpressionNode | BinaryExpr ExpressionNode ExpressionNode ExpressionNode | ListRange deriving Eq
 instance Show ExpressionNode where
     show (IdentifierRefExpr loc) = "IdentifierRefExpr " ++ show loc
     show (NumberConstExpr loc) = "NumberConstExpr " ++ show loc
@@ -146,6 +146,7 @@ instance Show ExpressionNode where
     show (InvertOpExpr expr) = "InvertOp(" ++ show expr ++ ")"
     show (FunApplyExpr fx vx) = "FunApplyExpr(" ++ show fx ++ " " ++ show vx ++ ")"
     show (BinaryExpr l op r) = "BinaryExpr(" ++ show l ++ " " ++ show op ++ " " ++ show r ++ ")"
+    show ListRange = ".."
 
 parseExpression :: LocatedString -> ParseResult ExpressionNode
 parseExpression = parseBinaryExpr
@@ -190,9 +191,12 @@ parseFunctionCandidates input = Failed input
 parseListTerm :: LocatedString -> ParseResult ExpressionNode
 parseListTerm input@(LocatedString ('[':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
     LocatedString (']':_) _ -> Success ([], next r)
-    _ -> (: []) <$> parseExpression r ->> dropSpaces ->> parseExpressionListRec where
-        parseExpressionListRec (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseExpression r) ->> dropSpaces ->> parseExpressionListRec
+    _ -> parseRangeOrExpression r ->> parseExpressionListRec where
+        parseExpressionListRec (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious (\r -> (++) x <$> parseRangeOrExpression r) ->> parseExpressionListRec
         parseExpressionListRec (x, r@(LocatedString (']':_) _)) = Success (x, next r)
         parseExpressionListRec (_, r) = Failed r
-    )
+    ) where
+        parseRangeOrExpression input = parseExpression input ->> dropSpaces ->> (\(x, r) -> case r of
+            LocatedString ('.':'.':_) _ -> into (next $ next r) ->> dropSpaces ->> (\(_, rt) -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
+            _ -> Success ([x], r))
 parseListTerm input = Failed input

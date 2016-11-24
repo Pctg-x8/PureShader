@@ -60,3 +60,13 @@ main = hspec $ do
             let op = IdentifierRefExpr $ LocatedString "elem" $ Location 1 4 in
             let r = ListExpr [NumberConstExpr $ IntValue $ LocatedString "2" $ Location 1 11, NumberConstExpr $ IntValue $ LocatedString "3" $ Location 1 14, NumberConstExpr $ IntValue $ LocatedString "4" $ Location 1 17] in
                 res `shouldBe` BinaryExpr l op r
+        it "can parse \"[1, 3 .. 10, 11]\"" $
+            let Success (res, _) = parseExpression $ LocatedString "[1, 3 .. 10, 11]" initLocation in
+            let first = NumberConstExpr $ IntValue $ LocatedString "1" $ Location 1 2 in
+            let second = NumberConstExpr $ IntValue $ LocatedString "3" $ Location 1 5 in
+            let third = NumberConstExpr $ IntValue $ LocatedString "10" $ Location 1 10 in
+            let fourth = NumberConstExpr $ IntValue $ LocatedString "11" $ Location 1 14 in
+                res `shouldBe` ListExpr [first, second, ListRange, third, fourth]
+        it "can parse \"[1..]\"" $
+            let Success (res, _) = parseExpression $ LocatedString "[1..]" initLocation in
+                res `shouldBe` ListExpr [NumberConstExpr $ IntValue $ LocatedString "1" $ Location 1 2, ListRange]
