@@ -4,6 +4,9 @@ import PSParser
 
 main :: IO ()
 main = hspec $ do
+    describe "dropComments" $
+        it "drops line comments exactly" $
+            parseExpression (LocatedString "--line_comment\napp 3 $ 3" initLocation) `shouldSatisfy` parsingSucceeded
     describe "parseNumber" $ do
         it "returns Success with LocatedString \"0123\" initLocation" $
             parseNumber (LocatedString "0123" initLocation) `shouldBe` Success (IntValue $ LocatedString "0123" initLocation, LocatedString "" $ Location 1 5)
@@ -26,10 +29,10 @@ main = hspec $ do
                 result `shouldBe` MemberRefExpr [LocatedString "vin" initLocation, LocatedString "xyz" $ Location 1 5]
         it "can parse \"-3\"" $
             let Success (result, _) = parseExpression $ LocatedString "-3" initLocation in
-                result `shouldBe` NegativeOpExpr (NumberConstExpr $ IntValue (LocatedString "3" $ Location 1 2))
+                result `shouldBe` FunApplyExpr (SymbolIdentExpr $ LocatedString "-" initLocation) (NumberConstExpr $ IntValue (LocatedString "3" $ Location 1 2))
         it "can parse \"~ 0.0\"" $
             let Success (result, _) = parseExpression $ LocatedString "~ 0.0" initLocation in
-                result `shouldBe` InvertOpExpr (NumberConstExpr $ FloatingValue (LocatedString "0.0" $ Location 1 3))
+                result `shouldBe` FunApplyExpr (SymbolIdentExpr $ LocatedString "~" initLocation) (NumberConstExpr $ FloatingValue (LocatedString "0.0" $ Location 1 3))
         it "can parse \"Vec4 0 0 0 1\"" $ case parseExpression $ LocatedString "Vec4 0 0 0 1" initLocation of
             Success (result, _) -> result `shouldBe` expect where
                 expect = FunApplyExpr (FunApplyExpr (FunApplyExpr (FunApplyExpr name first) second) third) fourth
