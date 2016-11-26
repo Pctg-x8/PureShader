@@ -1,5 +1,5 @@
 module PSParser (Location(Location), LocatedString(LocatedString), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
-    NumberType(..), ExpressionNode(..), parseExpression) where
+    NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes) where
 
 isSpace :: Char -> Bool
 isSpace c = c `elem` " \t"
@@ -118,6 +118,27 @@ parseIdentifier :: LocatedString -> ParseResult LocatedString
 parseIdentifier input = case input of
     LocatedString (c:_) _ | determineCharacterClass c == Other -> Success $ takeStrOpt (\x -> determineCharacterClass x `elem` [Other, Number]) input
     _ -> Failed input
+
+-- Script Attributes --
+data AttributeNode = ImportNode [LocatedString] deriving Eq
+instance Show AttributeNode where
+    show (ImportNode path) = "ImportNode " ++ show path
+
+parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
+parseScriptAttributes input@(LocatedString ('@':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
+    LocatedString ('[':_) _ -> into (next input) ->> dropSpaces ->> ignorePrevious (\r -> parseElementsRecursive ([], r)) where
+        parseElementsRecursive (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
+        parseElementsRecursive (x, r@(LocatedString (']':_) _)) = Success (x, next r)
+        parseElementsRecursive (_, input) = Failed input
+    _ -> (: []) <$> parseElement r
+    ) where
+        parseElement input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _) | determineCharacterClass c == Ignore = parseImport input
+        parseElement input = Failed input
+parseImport :: LocatedString -> ParseResult AttributeNode
+parseImport input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _)
+    | determineCharacterClass c == Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious (\r -> (: []) <$> parseIdentifier r) ->> (\x -> ImportNode <$> parsePathRec x) where
+        parsePathRec (x, r@(LocatedString ('.':_) _)) = into (next r) ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
+        parsePathRec v = Success v
 
 -- Expression --
 data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |

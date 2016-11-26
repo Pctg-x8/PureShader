@@ -30,8 +30,13 @@ main = hspec $ do
         it "can parse \"~ 0.0\"" $
             let Success (result, _) = parseExpression $ LocatedString "~ 0.0" initLocation in
                 result `shouldBe` InvertOpExpr (NumberConstExpr $ FloatingValue (LocatedString "0.0" $ Location 1 3))
-        it "can parse \"Vec4 0 0 0 1\"" $
-            let Success (result, _) = parseExpression $ LocatedString "Vec4 0 0 0 1" initLocation in
-                result `shouldBe` FunApplyExpr (IdentifierRefExpr $ LocatedString "Vec4" initLocation) [cz $ Location 1 6, cz $ Location 1 8, cz $ Location 1 10, co $ Location 1 12] where 
-                    cz l = NumberConstExpr $ IntValue (LocatedString "0" l)
-                    co l = NumberConstExpr $ IntValue (LocatedString "1" l)
+        it "can parse \"Vec4 0 0 0 1\"" $ let
+            Success (result, _) = parseExpression $ LocatedString "Vec4 0 0 0 1" initLocation
+            cz l = NumberConstExpr $ IntValue (LocatedString "0" l)
+            co = (NumberConstExpr . IntValue . LocatedString "1")
+            in
+                result `shouldBe` FunApplyExpr (IdentifierRefExpr $ LocatedString "Vec4" initLocation) [cz $ Location 1 6, cz $ Location 1 8, cz $ Location 1 10, co $ Location 1 12]
+    describe "parseScriptAttributes" $ do
+        it "can parse \"@import Shader.Core\"" $
+            let expect = Success ([ImportNode [LocatedString "Shader" $ Location 1 9, LocatedString "Core" $ Location 1 16]], LocatedString "" $ Location 1 20) in
+                parseScriptAttributes (LocatedString "@import Shader.Core" initLocation) `shouldBe` expect
