@@ -150,7 +150,7 @@ parseSymbolIdent input@((c:_) :@: _) | c `charClassOf` Symbol = Success $ takeSt
 parseSymbolIdent input = Failed input
 
 -- Script Attributes --
-data AttributeNode = ImportNode [LocatedString] deriving Eq
+data AttributeNode = ImportNode [LocatedString] | VariableInNode ExpressionNode | VariableOutNode ExpressionNode deriving Eq
 instance Show AttributeNode where
     show (ImportNode path) = "ImportNode " ++ show path
 
@@ -159,19 +159,20 @@ parseScriptAttributes input@(('@':_) :@: _) = into (next input) ->> dropSpaces -
     ('[':_) :@: _ -> parseElementsInBracket r
     _ -> (: []) <$> parseElement r
     ) where
-        parseElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _) | c `charClassOf` Ignore = parseImport input
-        parseElement input = Failed input
         parseElementsInBracket input = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
             (']':_) :@: _ -> Success ([], next r)
             _ -> (: []) <$> parseElement r ->> dropSpaces ->> parseElementsRecursive where
                 parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
                 parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
                 parseElementsRecursive (_, input) = Failed input)
-parseImport :: LocatedString -> ParseResult AttributeNode
-parseImport input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
-    | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious (\r -> (: []) <$> parseIdentifier r) ->> (\x -> ImportNode <$> parsePathRec x) where
+parseElement :: LocatedString -> ParseResult AttributeNode
+parseElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
+    | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious parseIdentifier |=> (: []) ->> parsePathRec |=> ImportNode where
         parsePathRec (x, r@(('.':_) :@: _)) = into (next r) ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
         parsePathRec v = Success v
+parseElement input@(('i':'n':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 2) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableInNode
+parseElement input@(('o':'u':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 3) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableOutNode
+parseElement input = Failed input
 
 -- Expression --
 data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
