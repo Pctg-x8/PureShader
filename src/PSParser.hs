@@ -156,14 +156,13 @@ instance Show AttributeNode where show (ImportNode path) = "ImportNode " ++ show
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
 parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
     ('[':_) :@: _ -> parseElementsInBracket r
-    _ -> (: []) <$> parseAttrElement r
-    ) where
-        parseElementsInBracket input = dropThenGo input ->> dropSpaces' ->> ignorePrevious (\r -> case r of
-            (']':_) :@: _ -> Success ([], next r)
-            _ -> (: []) <$> parseAttrElement r ->> dropSpaces ->> parseElementsRecursive where
-                parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces' ->> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) ->> dropSpaces ->> parseElementsRecursive
-                parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
-                parseElementsRecursive (_, input) = Failed input)
+    _ -> (: []) <$> parseAttrElement r) where
+        parseElementsInBracket input = dropThenGo input ->> dropSpaces' ->> ignorePrevious parseBracketNext
+        parseBracketNext input@((']':_) :@: _) = Success ([], next input)
+        parseBracketNext input = (: []) <$> parseAttrElement input ->> dropSpaces ->> parseElementsRecursive
+        parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces' ->> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) ->> dropSpaces ->> parseElementsRecursive
+        parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
+        parseElementsRecursive (_, input) = Failed input
 parseAttrElement :: LocatedString -> ParseResult AttributeNode
 parseAttrElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
     | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious parseIdentifier |=> (: []) ->> parsePathRec |=> ImportNode where
