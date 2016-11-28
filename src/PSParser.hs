@@ -1,4 +1,6 @@
-module PSParser (Location(Location), LocatedString(LocatedString), initLocation, (<@>), ParseResult(Success, Failed), parseNumber, parseIdentifier,
+{-# LANGUAGE TypeOperators #-}
+
+module PSParser (Location(Location), LocatedString(..), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
     NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes) where
 
 isSpace :: Char -> Bool
@@ -10,17 +12,15 @@ instance Show Location where
         line_str = show $ line loc
         column_str = show $ column loc
 -- A slice of string with its location on source
-data LocatedString = LocatedString String Location deriving Eq
-(<@>) :: String -> Location -> LocatedString
-(<@>) = LocatedString
+data LocatedString = String :@: Location deriving Eq
 instance Show LocatedString where
-    show (LocatedString str loc) = str ++ " at " ++ show loc
+    show (str :@: loc) = str ++ " at " ++ show loc
 class Concatable a where
     (~~) :: a -> a -> a
 instance Concatable LocatedString where
-    (LocatedString sa l) ~~ (LocatedString sb _) = LocatedString (sa ++ sb) l
+    (sa :@: l) ~~ (sb :@: _) = (sa ++ sb) :@: l
 append :: LocatedString -> String -> LocatedString
-append (LocatedString sa l) sb = LocatedString (sa ++ sb) l
+append (sa :@: l) sb = (sa ++ sb) :@: l
 -- The result of Parser
 data ParseResult a = Success (a, LocatedString) | Failed LocatedString deriving Eq
 instance Show a => Show (ParseResult a) where
@@ -31,7 +31,7 @@ instance Functor ParseResult where
     fmap _ (Failed r) = Failed r
 instance Applicative ParseResult where
     -- Lift a value with dummy remainings
-    pure v = Success (v, LocatedString "" initLocation)
+    pure v = Success (v, "" :@: initLocation)
     (Success (f, _)) <*> (Success (v, r)) = Success (f v, r)
     -- as identity
     (Failed _) <*> (Success (v, r)) = Failed r
@@ -72,14 +72,14 @@ newLine (Location l c) = Location (l + 1) 1
 
 -- LocatedString operations --
 next :: LocatedString -> LocatedString
-next (LocatedString ('\n':xs) loc) = LocatedString xs $ newLine loc
-next (LocatedString (_:xs) loc) = LocatedString xs $ forward loc
+next (('\n':xs) :@: loc) = xs :@: newLine loc
+next ((_:xs) :@: loc) = xs :@: forward loc
 dropThenGo :: LocatedString -> ParseResult ()
 dropThenGo = into . next
 
 takeStrOpt :: (Char -> Bool) -> LocatedString -> (LocatedString, LocatedString)
-takeStrOpt f (LocatedString str loc) = let (v, rest) = splitAt (countSatisfyElements f str) str in
-    (LocatedString v loc, LocatedString rest (forwardN (length v) loc))
+takeStrOpt f (str :@: loc) = let (v, rest) = splitAt (countSatisfyElements f str) str in
+    (v :@: loc, rest :@: forwardN (length v) loc)
 
 countSatisfyElements :: (a -> Bool) -> [a] -> Int
 countSatisfyElements f = impl 0 where
@@ -110,19 +110,19 @@ isPartOfIdentifier c = characterClass c `elem` [Other, Number]
 
 -- Parsing primitives generating void --
 dropSpaces' :: (a, LocatedString) -> ParseResult a      -- Allows new line
-dropSpaces' (v, LocatedString cs@('-':'-':c:_) loc)
-    | not $ c `charClassOf` Symbol = dropSpaces' (v, LocatedString (drop (nSpaces + 1) cs) (newLine $ forwardN nSpaces loc)) where
+dropSpaces' (v, cs@('-':'-':c:_) :@: loc)
+    | not $ c `charClassOf` Symbol = dropSpaces' (v, drop (nSpaces + 1) cs :@: (newLine . forwardN nSpaces) loc) where
         nSpaces = countSatisfyElements (/= '\n') cs
-dropSpaces' (v, LocatedString str@(c:_) loc) | c `elem` " \t" = dropSpaces' (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc)) where
+dropSpaces' (v, str@(c:_) :@: loc) | c `elem` " \t" = dropSpaces' (v, drop nSpaces str :@: forwardN nSpaces loc) where
     nSpaces = countSatisfyElements (`elem` " \t") str
 dropSpaces' x = Success x
 dropSpaces :: (a, LocatedString) -> ParseResult a
-dropSpaces (v, LocatedString str@(c:_) loc) | c `elem` " \t" = dropSpaces (v, LocatedString (drop nSpaces str) (forwardN nSpaces loc)) where
+dropSpaces (v, str@(c:_) :@: loc) | c `elem` " \t" = dropSpaces (v, drop nSpaces str :@: forwardN nSpaces loc) where
     nSpaces = countSatisfyElements (`elem` " \t") str
 dropSpaces x = Success x
 
 ensureCharacter :: Char -> (a, LocatedString) -> ParseResult a
-ensureCharacter c (v, LocatedString (x:xs) loc) | x == c = Success (v, LocatedString xs $ forward loc)
+ensureCharacter c (v, (x:xs) :@: loc) | x == c = Success (v, xs :@: forward loc)
 ensureCharacter _ (_, input) = Failed input
 
 ignorePrevious :: (LocatedString -> ParseResult a) -> (b, LocatedString) -> ParseResult a
@@ -135,18 +135,18 @@ instance Show NumberType where
     show (FloatingValue locs) = "FloatingValue(" ++ show locs ++ ")"
 
 parseNumber :: LocatedString -> ParseResult NumberType
-parseNumber input@(LocatedString (c:_) _) | '0' <= c && c <= '9' = (Success $ takeStrOpt (`charClassOf` Number) input) ->> parseMaybeFloating where
-    parseMaybeFloating (v, input@(LocatedString ('.':c:_) _)) | '0' <= c && c <= '9' = entireStr `seq` FloatingValue <$> Success entireStr where
+parseNumber input@((c:_) :@: _) | '0' <= c && c <= '9' = (Success $ takeStrOpt (`charClassOf` Number) input) ->> parseMaybeFloating where
+    parseMaybeFloating (v, input@(('.':c:_) :@: _)) | '0' <= c && c <= '9' = entireStr `seq` FloatingValue <$> Success entireStr where
         entireStr = let (fpart, r) = takeStrOpt (`charClassOf` Number) $ next input in ((v `append` ".") ~~ fpart, r)
     parseMaybeFloating (v, r) = Success (IntValue v, r)
 parseNumber input = Failed input
 
 parseIdentifier :: LocatedString -> ParseResult LocatedString
-parseIdentifier input@(LocatedString (c:_) _) | c `charClassOf` Other = Success $ takeStrOpt isPartOfIdentifier input
+parseIdentifier input@((c:_) :@: _) | c `charClassOf` Other = Success $ takeStrOpt isPartOfIdentifier input
 parseIdentifier input = Failed input
 
 parseSymbolIdent :: LocatedString -> ParseResult LocatedString
-parseSymbolIdent input@(LocatedString (c:_) _) | c `charClassOf` Symbol = Success $ takeStrOpt (`charClassOf` Symbol) input
+parseSymbolIdent input@((c:_) :@: _) | c `charClassOf` Symbol = Success $ takeStrOpt (`charClassOf` Symbol) input
 parseSymbolIdent input = Failed input
 
 -- Script Attributes --
@@ -155,22 +155,22 @@ instance Show AttributeNode where
     show (ImportNode path) = "ImportNode " ++ show path
 
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
-parseScriptAttributes input@(LocatedString ('@':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
-    LocatedString ('[':_) _ -> parseElementsInBracket r
+parseScriptAttributes input@(('@':_) :@: _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
+    ('[':_) :@: _ -> parseElementsInBracket r
     _ -> (: []) <$> parseElement r
     ) where
-        parseElement input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _) | c `charClassOf` Ignore = parseImport input
+        parseElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _) | c `charClassOf` Ignore = parseImport input
         parseElement input = Failed input
         parseElementsInBracket input = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
-            LocatedString (']':_) _ -> Success ([], next r)
+            (']':_) :@: _ -> Success ([], next r)
             _ -> (: []) <$> parseElement r ->> dropSpaces ->> parseElementsRecursive where
-                parseElementsRecursive (x, r@(LocatedString (',':_) _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
-                parseElementsRecursive (x, r@(LocatedString (']':_) _)) = Success (x, next r)
+                parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
+                parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
                 parseElementsRecursive (_, input) = Failed input)
 parseImport :: LocatedString -> ParseResult AttributeNode
-parseImport input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _)
+parseImport input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
     | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious (\r -> (: []) <$> parseIdentifier r) ->> (\x -> ImportNode <$> parsePathRec x) where
-        parsePathRec (x, r@(LocatedString ('.':_) _)) = into (next r) ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
+        parsePathRec (x, r@(('.':_) :@: _)) = into (next r) ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
         parsePathRec v = Success v
 
 -- Expression --
@@ -198,36 +198,36 @@ parseBinaryExpr input = parseUnaryTerm input ->> dropSpaces ->> parseRecursive w
 parseUnaryTerm input = parseFunctionCandidates input ->> parseFunApplyArgsRec // const (parsePrimaryTerm input) where
     parseFunApplyArgsRec (x, input) = into input ->> dropSpaces ->> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x ->> parseFunApplyArgsRec // const (Success (x, input))
 
-parsePrimaryTerm input@(LocatedString ('[':_) _) = parseListTerm input
-parsePrimaryTerm input@(LocatedString ('(':_) _) = into (next input) ->> dropSpaces' ->> ignorePrevious parseExpression ->> dropSpaces' ->> ensureCharacter ')'
-parsePrimaryTerm input@(LocatedString (c:_) _)
+parsePrimaryTerm input@(('[':_) :@: _) = parseListTerm input
+parsePrimaryTerm input@(('(':_) :@: _) = into (next input) ->> dropSpaces' ->> ignorePrevious parseExpression ->> dropSpaces' ->> ensureCharacter ')'
+parsePrimaryTerm input@((c:_) :@: _)
     | c `charClassOf` Number = NumberConstExpr <$> parseNumber input
     | c `charClassOf` Other = parseMemberRefOrIdentRef input
     | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parsePrimaryTerm input = Failed input
 
-parseFunctionCandidates input@(LocatedString ('(':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
-parseFunctionCandidates input@(LocatedString (c:_) _) | c `charClassOf` Other = parseMemberRefOrIdentRef input
+parseFunctionCandidates input@(('(':_) :@: _) = into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
+parseFunctionCandidates input@((c:_) :@: _) | c `charClassOf` Other = parseMemberRefOrIdentRef input
 parseFunctionCandidates input = parseInfixOperator input
 
 parseMemberRefOrIdentRef input = (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr $ head memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
     memberRefs = (: []) <$> parseIdentifier input ->> parseMemberRefRecursive
-    parseMemberRefRecursive (v, input@(LocatedString ('.':c:_) _)) | c `charClassOf` Other = into (next input) ->> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) ->> parseMemberRefRecursive
+    parseMemberRefRecursive (v, input@(('.':c:_) :@: _)) | c `charClassOf` Other = into (next input) ->> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) ->> parseMemberRefRecursive
     parseMemberRefRecursive x = Success x
 
-parseInfixOperator input@(LocatedString ('`':c:_) _)
+parseInfixOperator input@(('`':c:_) :@: _)
     | c `charClassOf` Other = into (next input) ->> ignorePrevious parseIdentifier |=> IdentifierRefExpr ->> ensureCharacter '`'
-parseInfixOperator input@(LocatedString (c:_) _) | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
+parseInfixOperator input@((c:_) :@: _) | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parseInfixOperator input = Failed input
 
-parseListTerm input@(LocatedString ('[':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
-    LocatedString (']':_) _ -> Success ([], next r)
+parseListTerm input@(('[':_) :@: _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
+    (']':_) :@: _ -> Success ([], next r)
     _ -> parseRangeOrExpression r ->> parseExpressionListRec where
-        parseExpressionListRec (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious parseRangeOrExpression |=> (++) x ->> parseExpressionListRec
-        parseExpressionListRec (x, r@(LocatedString (']':_) _)) = Success (x, next r)
+        parseExpressionListRec (x, r@((',':_) :@: _)) = into (next r) ->> dropSpaces ->> ignorePrevious parseRangeOrExpression |=> (++) x ->> parseExpressionListRec
+        parseExpressionListRec (x, r@((']':_) :@: _)) = Success (x, next r)
         parseExpressionListRec (_, r) = Failed r
     ) where
         parseRangeOrExpression input = parseExpression input ->> dropSpaces ->> (\(x, r) -> case r of
-            LocatedString ('.':'.':_) _ -> into (next $ next r) ->> dropSpaces ->> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
+            ('.':'.':_) :@: _ -> into (next $ next r) ->> dropSpaces ->> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
             _ -> Success ([x], r))
 parseListTerm input = Failed input
