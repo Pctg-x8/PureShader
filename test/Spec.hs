@@ -76,10 +76,13 @@ main = hspec $ do
         it "can parse complex expression" $
             let left = parseExpression $ LocatedString "buildUVs (transformVec4 pos pmatr.persp) $ swizzleByRepeatingToVec4 uv.xz" initLocation in
                 left `shouldSatisfy` parsingSucceeded
-    describe "parseScriptAttributes" $
+    describe "parseScriptAttributes" $ do
         it "can parse \"@import Shader.Core\"" $
             let expect = Success ([ImportNode [LocatedString "Shader" $ Location 1 9, LocatedString "Core" $ Location 1 16]], LocatedString "" $ Location 1 20) in
                 parseScriptAttributes (LocatedString "@import Shader.Core" initLocation) `shouldBe` expect
+        it "can parse \"@[import Shader.Core]\"" $
+            let expect = Success ([ImportNode ["Shader" <@> Location 1 10, "Core" <@> Location 1 17]], "" <@> Location 1 22) in
+                parseScriptAttributes ("@[import Shader.Core]" <@> initLocation) `shouldBe` expect
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True

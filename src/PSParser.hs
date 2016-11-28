@@ -1,4 +1,4 @@
-module PSParser (Location(Location), LocatedString(LocatedString), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
+module PSParser (Location(Location), LocatedString(LocatedString), initLocation, (<@>), ParseResult(Success, Failed), parseNumber, parseIdentifier,
     NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes) where
 
 isSpace :: Char -> Bool
@@ -11,6 +11,8 @@ instance Show Location where
         column_str = show $ column loc
 -- A slice of string with its location on source
 data LocatedString = LocatedString String Location deriving Eq
+(<@>) :: String -> Location -> LocatedString
+a <@> b = LocatedString a b
 instance Show LocatedString where
     show (LocatedString str loc) = str ++ " at " ++ show loc
 class Concatable a where
@@ -72,6 +74,8 @@ newLine (Location l c) = Location (l + 1) 1
 next :: LocatedString -> LocatedString
 next (LocatedString ('\n':xs) loc) = LocatedString xs $ newLine loc
 next (LocatedString (_:xs) loc) = LocatedString xs $ forward loc
+dropThenGo :: LocatedString -> ParseResult ()
+dropThenGo = into . next
 
 takeStrOpt :: (Char -> Bool) -> LocatedString -> (LocatedString, LocatedString)
 takeStrOpt f (LocatedString str loc) = let (v, rest) = splitAt (countSatisfyElements f str) str in
@@ -152,17 +156,20 @@ instance Show AttributeNode where
 
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
 parseScriptAttributes input@(LocatedString ('@':_) _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
-    LocatedString ('[':_) _ -> into (next input) ->> dropSpaces ->> ignorePrevious (\r -> parseElementsRecursive ([], r)) where
-        parseElementsRecursive (x, r@(LocatedString (',':_) _)) = into (next r) ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
-        parseElementsRecursive (x, r@(LocatedString (']':_) _)) = Success (x, next r)
-        parseElementsRecursive (_, input) = Failed input
+    LocatedString ('[':_) _ -> parseElementsInBracket r
     _ -> (: []) <$> parseElement r
     ) where
-        parseElement input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _) | determineCharacterClass c == Ignore = parseImport input
+        parseElement input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _) | c `charClassOf` Ignore = parseImport input
         parseElement input = Failed input
+        parseElementsInBracket input = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
+            LocatedString (']':_) _ -> Success ([], next r)
+            _ -> (: []) <$> parseElement r ->> dropSpaces ->> parseElementsRecursive where
+                parseElementsRecursive (x, r@(LocatedString (',':_) _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
+                parseElementsRecursive (x, r@(LocatedString (']':_) _)) = Success (x, next r)
+                parseElementsRecursive (_, input) = Failed input)
 parseImport :: LocatedString -> ParseResult AttributeNode
 parseImport input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _)
-    | determineCharacterClass c == Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious (\r -> (: []) <$> parseIdentifier r) ->> (\x -> ImportNode <$> parsePathRec x) where
+    | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious (\r -> (: []) <$> parseIdentifier r) ->> (\x -> ImportNode <$> parsePathRec x) where
         parsePathRec (x, r@(LocatedString ('.':_) _)) = into (next r) ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
         parsePathRec v = Success v
 
