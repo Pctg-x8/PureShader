@@ -83,6 +83,9 @@ main = hspec $ do
         it "can parse \"@[import Shader.Core]\"" $
             let expect = Success ([ImportNode ["Shader" <@> Location 1 10, "Core" <@> Location 1 17]], "" <@> Location 1 22) in
                 parseScriptAttributes ("@[import Shader.Core]" <@> initLocation) `shouldBe` expect
+        it "can parse \"@[import Shader.Core, import Quaternion]\"" $
+            let expect = Success ([ImportNode ["Shader" <@> Location 1 10, "Core" <@> Location 1 17], ImportNode ["Quaternion" <@> Location 1 30]], "" <@> Location 1 41) in
+                parseScriptAttributes ("@[import Shader.Core, import Quaternion]" <@> initLocation) `shouldBe` expect
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True

@@ -12,7 +12,7 @@ instance Show Location where
 -- A slice of string with its location on source
 data LocatedString = LocatedString String Location deriving Eq
 (<@>) :: String -> Location -> LocatedString
-a <@> b = LocatedString a b
+(<@>) = LocatedString
 instance Show LocatedString where
     show (LocatedString str loc) = str ++ " at " ++ show loc
 class Concatable a where
@@ -99,7 +99,7 @@ characterClass c
     | c == '[' = Bracket Open
     | c == ']' = Bracket Close
     | c `elem` "+-*/<>$?~@" = Symbol
-    | c `elem` ".`" = InternalSymbol
+    | c `elem` ".`," = InternalSymbol
     | '0' <= c && c <= '9' = Number
     | otherwise = Other
 charClassOf :: Char -> CharacterClass -> Bool
@@ -161,7 +161,7 @@ parseScriptAttributes input@(LocatedString ('@':_) _) = into (next input) ->> dr
     ) where
         parseElement input@(LocatedString ('i':'m':'p':'o':'r':'t':c:_) _) | c `charClassOf` Ignore = parseImport input
         parseElement input = Failed input
-        parseElementsInBracket input = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
+        parseElementsInBracket input = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
             LocatedString (']':_) _ -> Success ([], next r)
             _ -> (: []) <$> parseElement r ->> dropSpaces ->> parseElementsRecursive where
                 parseElementsRecursive (x, r@(LocatedString (',':_) _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
