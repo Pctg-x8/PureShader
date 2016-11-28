@@ -151,18 +151,17 @@ parseSymbolIdent input = Failed input
 
 -- Script Attributes --
 data AttributeNode = ImportNode [LocatedString] | VariableInNode ExpressionNode | VariableOutNode ExpressionNode deriving Eq
-instance Show AttributeNode where
-    show (ImportNode path) = "ImportNode " ++ show path
+instance Show AttributeNode where show (ImportNode path) = "ImportNode " ++ show path
 
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
 parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
     ('[':_) :@: _ -> parseElementsInBracket r
     _ -> (: []) <$> parseAttrElement r
     ) where
-        parseElementsInBracket input = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
+        parseElementsInBracket input = dropThenGo input ->> dropSpaces' ->> ignorePrevious (\r -> case r of
             (']':_) :@: _ -> Success ([], next r)
             _ -> (: []) <$> parseAttrElement r ->> dropSpaces ->> parseElementsRecursive where
-                parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) ->> dropSpaces ->> parseElementsRecursive
+                parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces' ->> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) ->> dropSpaces ->> parseElementsRecursive
                 parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
                 parseElementsRecursive (_, input) = Failed input)
 parseAttrElement :: LocatedString -> ParseResult AttributeNode
@@ -175,7 +174,8 @@ parseAttrElement input@(('o':'u':'t':c:_) :@: _) | c `charClassOf` Ignore = into
 parseAttrElement input = Failed input
 
 -- Expression --
-data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
+data ExpressionNode =
+    IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
     SymbolIdentExpr LocatedString | ListExpr [ExpressionNode] | FunApplyExpr ExpressionNode ExpressionNode |
     BinaryExpr ExpressionNode ExpressionNode ExpressionNode | ListRange deriving Eq
 instance Show ExpressionNode where
