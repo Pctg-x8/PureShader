@@ -155,24 +155,24 @@ instance Show AttributeNode where
     show (ImportNode path) = "ImportNode " ++ show path
 
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
-parseScriptAttributes input@(('@':_) :@: _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> case r of
+parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
     ('[':_) :@: _ -> parseElementsInBracket r
-    _ -> (: []) <$> parseElement r
+    _ -> (: []) <$> parseAttrElement r
     ) where
         parseElementsInBracket input = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
             (']':_) :@: _ -> Success ([], next r)
-            _ -> (: []) <$> parseElement r ->> dropSpaces ->> parseElementsRecursive where
-                parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious (\r -> (\e -> x ++ [e]) <$> parseElement r) ->> dropSpaces ->> parseElementsRecursive
+            _ -> (: []) <$> parseAttrElement r ->> dropSpaces ->> parseElementsRecursive where
+                parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) ->> dropSpaces ->> parseElementsRecursive
                 parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
                 parseElementsRecursive (_, input) = Failed input)
-parseElement :: LocatedString -> ParseResult AttributeNode
-parseElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
+parseAttrElement :: LocatedString -> ParseResult AttributeNode
+parseAttrElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
     | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious parseIdentifier |=> (: []) ->> parsePathRec |=> ImportNode where
-        parsePathRec (x, r@(('.':_) :@: _)) = into (next r) ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
+        parsePathRec (x, r@(('.':_) :@: _)) = dropThenGo r ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
         parsePathRec v = Success v
-parseElement input@(('i':'n':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 2) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableInNode
-parseElement input@(('o':'u':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 3) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableOutNode
-parseElement input = Failed input
+parseAttrElement input@(('i':'n':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 2) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableInNode
+parseAttrElement input@(('o':'u':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 3) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableOutNode
+parseAttrElement input = Failed input
 
 -- Expression --
 data ExpressionNode = IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
@@ -200,35 +200,35 @@ parseUnaryTerm input = parseFunctionCandidates input ->> parseFunApplyArgsRec //
     parseFunApplyArgsRec (x, input) = into input ->> dropSpaces ->> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x ->> parseFunApplyArgsRec // const (Success (x, input))
 
 parsePrimaryTerm input@(('[':_) :@: _) = parseListTerm input
-parsePrimaryTerm input@(('(':_) :@: _) = into (next input) ->> dropSpaces' ->> ignorePrevious parseExpression ->> dropSpaces' ->> ensureCharacter ')'
+parsePrimaryTerm input@(('(':_) :@: _) = dropThenGo input ->> dropSpaces' ->> ignorePrevious parseExpression ->> dropSpaces' ->> ensureCharacter ')'
 parsePrimaryTerm input@((c:_) :@: _)
     | c `charClassOf` Number = NumberConstExpr <$> parseNumber input
     | c `charClassOf` Other = parseMemberRefOrIdentRef input
     | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parsePrimaryTerm input = Failed input
 
-parseFunctionCandidates input@(('(':_) :@: _) = into (next input) ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
+parseFunctionCandidates input@(('(':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
 parseFunctionCandidates input@((c:_) :@: _) | c `charClassOf` Other = parseMemberRefOrIdentRef input
 parseFunctionCandidates input = parseInfixOperator input
 
 parseMemberRefOrIdentRef input = (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr $ head memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
     memberRefs = (: []) <$> parseIdentifier input ->> parseMemberRefRecursive
-    parseMemberRefRecursive (v, input@(('.':c:_) :@: _)) | c `charClassOf` Other = into (next input) ->> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) ->> parseMemberRefRecursive
+    parseMemberRefRecursive (v, input@(('.':c:_) :@: _)) | c `charClassOf` Other = dropThenGo input ->> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) ->> parseMemberRefRecursive
     parseMemberRefRecursive x = Success x
 
 parseInfixOperator input@(('`':c:_) :@: _)
-    | c `charClassOf` Other = into (next input) ->> ignorePrevious parseIdentifier |=> IdentifierRefExpr ->> ensureCharacter '`'
+    | c `charClassOf` Other = dropThenGo input ->> ignorePrevious parseIdentifier |=> IdentifierRefExpr ->> ensureCharacter '`'
 parseInfixOperator input@((c:_) :@: _) | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parseInfixOperator input = Failed input
 
-parseListTerm input@(('[':_) :@: _) = into (next input) ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
+parseListTerm input@(('[':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
     (']':_) :@: _ -> Success ([], next r)
     _ -> parseRangeOrExpression r ->> parseExpressionListRec where
-        parseExpressionListRec (x, r@((',':_) :@: _)) = into (next r) ->> dropSpaces ->> ignorePrevious parseRangeOrExpression |=> (++) x ->> parseExpressionListRec
+        parseExpressionListRec (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious parseRangeOrExpression |=> (++) x ->> parseExpressionListRec
         parseExpressionListRec (x, r@((']':_) :@: _)) = Success (x, next r)
         parseExpressionListRec (_, r) = Failed r
     ) where
         parseRangeOrExpression input = parseExpression input ->> dropSpaces ->> (\(x, r) -> case r of
-            ('.':'.':_) :@: _ -> into (next $ next r) ->> dropSpaces ->> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
+            ('.':'.':_) :@: _ -> into (iterate next r !! 2) ->> dropSpaces ->> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
             _ -> Success ([x], r))
 parseListTerm input = Failed input
