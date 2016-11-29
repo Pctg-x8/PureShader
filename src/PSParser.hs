@@ -44,11 +44,11 @@ into :: LocatedString -> ParseResult ()
 into l = Success ((), l)
 
 -- Continuous Parsing
-andThen, (->>) :: ParseResult a -> ((a, LocatedString) -> ParseResult b) -> ParseResult b
-infixl 2 ->>
-(Success x) ->> f = f x
-(Failed r) ->> _ = Failed r
-andThen = (->>)
+andThen, (/>) :: ParseResult a -> ((a, LocatedString) -> ParseResult b) -> ParseResult b
+infixl 2 />
+(Success x) /> f = f x
+(Failed r) /> _ = Failed r
+andThen = (/>)
 -- Alternate Parsing
 orElse, (//) :: ParseResult a -> (LocatedString -> ParseResult a) -> ParseResult a
 infixl 1 //
@@ -135,7 +135,7 @@ instance Show NumberType where
     show (FloatingValue locs) = "FloatingValue(" ++ show locs ++ ")"
 
 parseNumber :: LocatedString -> ParseResult NumberType
-parseNumber input@((c:_) :@: _) | '0' <= c && c <= '9' = (Success $ takeStrOpt (`charClassOf` Number) input) ->> parseMaybeFloating where
+parseNumber input@((c:_) :@: _) | '0' <= c && c <= '9' = (Success $ takeStrOpt (`charClassOf` Number) input) /> parseMaybeFloating where
     parseMaybeFloating (v, input@(('.':c:_) :@: _)) | '0' <= c && c <= '9' = entireStr `seq` FloatingValue <$> Success entireStr where
         entireStr = let (fpart, r) = takeStrOpt (`charClassOf` Number) $ next input in ((v `append` ".") ~~ fpart, r)
     parseMaybeFloating (v, r) = Success (IntValue v, r)
@@ -154,22 +154,22 @@ data AttributeNode = ImportNode [LocatedString] | VariableInNode ExpressionNode 
 instance Show AttributeNode where show (ImportNode path) = "ImportNode " ++ show path
 
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
-parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> case r of
+parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious (\r -> case r of
     ('[':_) :@: _ -> parseElementsInBracket r
     _ -> (: []) <$> parseAttrElement r) where
-        parseElementsInBracket input = dropThenGo input ->> dropSpaces' ->> ignorePrevious parseBracketNext
+        parseElementsInBracket input = dropThenGo input /> dropSpaces' /> ignorePrevious parseBracketNext
         parseBracketNext input@((']':_) :@: _) = Success ([], next input)
-        parseBracketNext input = (: []) <$> parseAttrElement input ->> dropSpaces ->> parseElementsRecursive
-        parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces' ->> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) ->> dropSpaces ->> parseElementsRecursive
+        parseBracketNext input = (: []) <$> parseAttrElement input /> dropSpaces /> parseElementsRecursive
+        parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r /> dropSpaces' /> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) /> dropSpaces /> parseElementsRecursive
         parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
         parseElementsRecursive (_, input) = Failed input
 parseAttrElement :: LocatedString -> ParseResult AttributeNode
 parseAttrElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
-    | c `charClassOf` Ignore = into (iterate next input !! 6) ->> dropSpaces ->> ignorePrevious parseIdentifier |=> (: []) ->> parsePathRec |=> ImportNode where
-        parsePathRec (x, r@(('.':_) :@: _)) = dropThenGo r ->> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) ->> parsePathRec
+    | c `charClassOf` Ignore = into (iterate next input !! 6) /> dropSpaces /> ignorePrevious parseIdentifier |=> (: []) /> parsePathRec |=> ImportNode where
+        parsePathRec (x, r@(('.':_) :@: _)) = dropThenGo r /> ignorePrevious (\r -> (\i -> x ++ [i]) <$> parseIdentifier r) /> parsePathRec
         parsePathRec v = Success v
-parseAttrElement input@(('i':'n':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 2) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableInNode
-parseAttrElement input@(('o':'u':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 3) ->> dropSpaces ->> ignorePrevious parseExpression |=> VariableOutNode
+parseAttrElement input@(('i':'n':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 2) /> dropSpaces /> ignorePrevious parseExpression |=> VariableInNode
+parseAttrElement input@(('o':'u':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 3) /> dropSpaces /> ignorePrevious parseExpression |=> VariableOutNode
 parseAttrElement input = Failed input
 
 -- Expression --
@@ -192,42 +192,42 @@ parseMemberRefOrIdentRef, parseInfixOperator, parseListTerm :: LocatedString -> 
 
 parseExpression = parseBinaryExpr
 
-parseBinaryExpr input = parseUnaryTerm input ->> dropSpaces ->> parseRecursive where
-    parseRecursive (x, r) = parseInfixOperator r ->> dropSpaces' ->> (\(io, rest) -> BinaryExpr x io <$> parseUnaryTerm rest) ->> dropSpaces ->> parseRecursive // const (Success (x, r))
+parseBinaryExpr input = parseUnaryTerm input /> dropSpaces /> parseRecursive where
+    parseRecursive (x, r) = parseInfixOperator r /> dropSpaces' /> (\(io, rest) -> BinaryExpr x io <$> parseUnaryTerm rest) /> dropSpaces /> parseRecursive // const (Success (x, r))
 
-parseUnaryTerm input = parseFunctionCandidates input ->> parseFunApplyArgsRec // const (parsePrimaryTerm input) where
-    parseFunApplyArgsRec (x, input) = into input ->> dropSpaces ->> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x ->> parseFunApplyArgsRec // const (Success (x, input))
+parseUnaryTerm input = parseFunctionCandidates input /> parseFunApplyArgsRec // const (parsePrimaryTerm input) where
+    parseFunApplyArgsRec (x, input) = into input /> dropSpaces /> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x /> parseFunApplyArgsRec // const (Success (x, input))
 
 parsePrimaryTerm input@(('[':_) :@: _) = parseListTerm input
-parsePrimaryTerm input@(('(':_) :@: _) = dropThenGo input ->> dropSpaces' ->> ignorePrevious parseExpression ->> dropSpaces' ->> ensureCharacter ')'
+parsePrimaryTerm input@(('(':_) :@: _) = dropThenGo input /> dropSpaces' /> ignorePrevious parseExpression /> dropSpaces' /> ensureCharacter ')'
 parsePrimaryTerm input@((c:_) :@: _)
     | c `charClassOf` Number = NumberConstExpr <$> parseNumber input
     | c `charClassOf` Other = parseMemberRefOrIdentRef input
     | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parsePrimaryTerm input = Failed input
 
-parseFunctionCandidates input@(('(':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious parseExpression ->> dropSpaces ->> ensureCharacter ')'
+parseFunctionCandidates input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parseExpression /> dropSpaces /> ensureCharacter ')'
 parseFunctionCandidates input@((c:_) :@: _) | c `charClassOf` Other = parseMemberRefOrIdentRef input
 parseFunctionCandidates input = parseInfixOperator input
 
 parseMemberRefOrIdentRef input = (\memberRefs -> if length memberRefs == 1 then IdentifierRefExpr $ head memberRefs else MemberRefExpr memberRefs) <$> memberRefs where
-    memberRefs = (: []) <$> parseIdentifier input ->> parseMemberRefRecursive
-    parseMemberRefRecursive (v, input@(('.':c:_) :@: _)) | c `charClassOf` Other = dropThenGo input ->> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) ->> parseMemberRefRecursive
+    memberRefs = (: []) <$> parseIdentifier input /> parseMemberRefRecursive
+    parseMemberRefRecursive (v, input@(('.':c:_) :@: _)) | c `charClassOf` Other = dropThenGo input /> ignorePrevious parseIdentifier |=> (\x -> v ++ [x]) /> parseMemberRefRecursive
     parseMemberRefRecursive x = Success x
 
 parseInfixOperator input@(('`':c:_) :@: _)
-    | c `charClassOf` Other = dropThenGo input ->> ignorePrevious parseIdentifier |=> IdentifierRefExpr ->> ensureCharacter '`'
+    | c `charClassOf` Other = dropThenGo input /> ignorePrevious parseIdentifier |=> IdentifierRefExpr /> ensureCharacter '`'
 parseInfixOperator input@((c:_) :@: _) | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parseInfixOperator input = Failed input
 
-parseListTerm input@(('[':_) :@: _) = dropThenGo input ->> dropSpaces ->> ignorePrevious (\r -> ListExpr <$> case r of
+parseListTerm input@(('[':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious (\r -> ListExpr <$> case r of
     (']':_) :@: _ -> Success ([], next r)
-    _ -> parseRangeOrExpression r ->> parseExpressionListRec where
-        parseExpressionListRec (x, r@((',':_) :@: _)) = dropThenGo r ->> dropSpaces ->> ignorePrevious parseRangeOrExpression |=> (++) x ->> parseExpressionListRec
+    _ -> parseRangeOrExpression r /> parseExpressionListRec where
+        parseExpressionListRec (x, r@((',':_) :@: _)) = dropThenGo r /> dropSpaces /> ignorePrevious parseRangeOrExpression |=> (++) x /> parseExpressionListRec
         parseExpressionListRec (x, r@((']':_) :@: _)) = Success (x, next r)
         parseExpressionListRec (_, r) = Failed r
     ) where
-        parseRangeOrExpression input = parseExpression input ->> dropSpaces ->> (\(x, r) -> case r of
-            ('.':'.':_) :@: _ -> into (iterate next r !! 2) ->> dropSpaces ->> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
+        parseRangeOrExpression input = parseExpression input /> dropSpaces /> (\(x, r) -> case r of
+            ('.':'.':_) :@: _ -> into (iterate next r !! 2) /> dropSpaces /> ignorePrevious (\rt -> (\e -> x : ListRange : [e]) <$> parseExpression rt // const (Success (x : [ListRange], rt)))
             _ -> Success ([x], r))
 parseListTerm input = Failed input
