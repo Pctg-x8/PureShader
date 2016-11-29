@@ -201,7 +201,7 @@ parseBinaryExpr input = parseUnaryTerm input /> dropSpaces /> parseRecursive whe
     parseRecursive (x, r) = parseInfixOperator r /> dropSpaces' /> (\(io, rest) -> BinaryExpr x io <$> parseUnaryTerm rest) /> dropSpaces /> parseRecursive // const (Success (x, r))
 
 parseUnaryTerm input = parseFunctionCandidates input /> parseFunApplyArgsRec // const (parsePrimaryTerm input) where
-    parseFunApplyArgsRec (x, r) = into r /> dropSpaces /> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x /> parseFunApplyArgsRec // const (Success (x, input))
+    parseFunApplyArgsRec (x, r) = into r /> dropSpaces /> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x /> parseFunApplyArgsRec // const (Success (x, r))
 
 parsePrimaryTerm input@(('[':_) :@: _) = parseListTerm input
 parsePrimaryTerm input@(('(':_) :@: _) = dropThenGo input /> dropSpaces' /> ignorePrevious parseExpression /> dropSpaces' /> ensureCharacter ')'
@@ -233,6 +233,6 @@ parseListTerm input@(('[':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePr
         parseExpressionListRec (_, rt) = Failed rt
     ) where
         parseRangeOrExpression r = parseExpression r /> dropSpaces /> (\(x, rt) -> case rt of
-            ('.':'.':_) :@: _ -> into (iterate next r !! 2) /> dropSpaces /> ignorePrevious (\res -> (\e -> x : ListRange : [e]) <$> parseExpression res // const (Success (x : [ListRange], res)))
-            _ -> Success ([x], r))
+            ('.':'.':_) :@: _ -> into (iterate next rt !! 2) /> dropSpaces /> ignorePrevious (\res -> (\e -> x : ListRange : [e]) <$> parseExpression res // const (Success (x : [ListRange], res)))
+            _ -> Success ([x], rt))
 parseListTerm input = Failed input
