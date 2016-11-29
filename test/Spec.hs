@@ -85,6 +85,15 @@ main = hspec $ do
             it "can parse \"@out ovIndex\"" $ parseScriptAttributes ("@out ovIndex" :@: initLocation) `shouldBe` expect) >>
         (let expect = Success ([UniformBindNode (NumberConstExpr . IntValue $ "0" :@: Location 1 10) (NumberConstExpr . IntValue $ "0" :@: Location 1 12)], "" :@: Location 1 13) in
             it "can parse \"@uniform 0 0\"" $ parseScriptAttributes ("@uniform 0 0" :@: initLocation) `shouldBe` expect)
+    describe "parsePattern" $
+        (let expect = Success (IdentifierBindPat $ "x" :@: initLocation, "" :@: Location 1 2) in
+            it "can parse \"x\" as bind pattern" $ parsePattern ("x" :@: initLocation) `shouldBe` expect) >>
+        (let expect = Success (AsPat ("input" :@: initLocation) Wildcard, "" :@: Location 1 10) in
+            it "can parse \"input@(_)\"" $ parsePattern ("input@(_)" :@: initLocation) `shouldBe` expect) >>
+        (let expect = Success (AsPat ("input" :@: initLocation) (DataDecompositePat ("Terminal" :@: Location 1 7) []), "" :@: Location 1 15) in
+            it "can parse \"input@Terminal\"" $ parsePattern ("input@Terminal" :@: initLocation) `shouldBe` expect) >>
+        (let expect = Success (DataDecompositePat ("Vec4" :@: initLocation) [IdentifierBindPat ("x" :@: Location 1 6), AsPat ("y" :@: Location 1 8) (NumberConstPat $ IntValue $ "0" :@: Location 1 12), Wildcard, Wildcard], "" :@: Location 1 17) in
+            it "can parse \"Vec4 x y@0 _ _\"" $ parsePattern ("Vec4 x y @ 0 _ _" :@: initLocation) `shouldBe` expect)
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True

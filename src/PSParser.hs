@@ -1,7 +1,10 @@
 {-# LANGUAGE TypeOperators #-}
 
 module PSParser (Location(Location), LocatedString(..), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
-    NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes) where
+    NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes,
+    PatternNode(..), parsePattern) where
+
+import Data.Char (isLower, isUpper)
 
 isSpace :: Char -> Bool
 isSpace c = c `elem` " \t"
@@ -176,6 +179,45 @@ parseAttrElement input@(('u':'n':'i':'f':'o':'r':'m':c:_) :@: _) | c `charClassO
 parseAttrElement input@(('i':'n':'p':'u':'t':'A':'t':'t':'a':'c':'h':'m':'e':'n':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 15) /> dropSpaces />
     ignorePrevious parseExpression /> dropSpaces /> (\(x, r) -> (,) x <$> parseExpression r) /> dropSpaces /> (\((x, y), r) -> InputAttachmentBindNode x y <$> parseExpression r)
 parseAttrElement input = Failed input
+
+-- PatternNode --
+data PatternNode =
+    IdentifierBindPat LocatedString | NumberConstPat NumberType | MemberRefPat [LocatedString] |
+    SymbolIdentPat LocatedString | ListPat [PatternNode] | DataDecompositePat LocatedString [PatternNode] |
+    BinaryPat PatternNode PatternNode PatternNode | ListRangePat | AsPat LocatedString PatternNode | Wildcard deriving Eq
+instance Show PatternNode where
+    show (IdentifierBindPat loc) = "IdentifierBindPat " `showsPrep` loc
+    show (NumberConstPat num) = "NumberConstPat " `showsPrep` num
+    show (MemberRefPat mref) = "MemberRefPat " ++ show mref
+    show (SymbolIdentPat sym) = "SymbolIdentPat " `showsPrep` sym
+    show (ListPat exs) = "SymbolIdentPat " ++ show exs
+    show (DataDecompositePat cons pats) = "DataDecompositePat " ++ show cons ++ " " ++ show pats
+    show (BinaryPat left op right) = "BinaryPat " `showsPrep` left ++ " " `showsPrep` op ++ " " `showsPrep` right
+    show ListRangePat = ".."
+    show (AsPat bindto pat) = show bindto ++ " as " `showsPrep` pat
+    show Wildcard = "_"
+
+parsePattern :: LocatedString -> ParseResult PatternNode
+parsePattern input = parseDecompositePattern input
+
+parseDecompositePattern :: LocatedString -> ParseResult PatternNode
+parseDecompositePattern input@((c:_) :@: _) | isUpper c = parseIdentifier input /> dropSpaces />  (\(d, r) -> DataDecompositePat d <$> parseArgsRecursive ([], r)) where
+    parseArgsRecursive (x, r) = (\p -> x ++ [p]) <$> parseAsPattern r /> dropSpaces /> parseArgsRecursive // const (Success (x, r))
+parseDecompositePattern input = parseAsPattern input
+parseAsPattern :: LocatedString -> ParseResult PatternNode
+parseAsPattern input = parseIdentifier input /> dropSpaces /> (\(x, r) -> case r of
+    ('@':_) :@: _ -> dropThenGo r /> dropSpaces /> (\(_, rt) -> case rt of
+        (c:_) :@: _ | isUpper c -> AsPat x . (`DataDecompositePat` []) <$> parseIdentifier rt
+        _ -> AsPat x <$> parsePatternPrimitives rt)
+    _ -> parsePatternPrimitives input)
+parsePatternPrimitives :: LocatedString -> ParseResult PatternNode
+parsePatternPrimitives input@(('_':c:_) :@: _) | not (c `charClassOf` Other || c `charClassOf` Number) && (c /= '_') = Success (Wildcard, next input)
+parsePatternPrimitives input@(['_'] :@: _) = Success (Wildcard, next input)
+parsePatternPrimitives input@((c:_) :@: _)
+    | (c `charClassOf` Other) && (isLower c) = IdentifierBindPat <$> parseIdentifier input
+    | c `charClassOf` Number = NumberConstPat <$> parseNumber input
+parsePatternPrimitives input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parsePattern /> dropSpaces /> ensureCharacter ')'
+parsePatternPrimitives input = Failed input
 
 -- Expression --
 data ExpressionNode =
