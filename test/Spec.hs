@@ -1,5 +1,5 @@
 import Test.Hspec
-import Test.Hspec.Expectations
+import Test.Hspec.Expectations ()
 import PSParser
 
 main :: IO ()
@@ -82,7 +82,9 @@ main = hspec $ do
         (let expect = Success ([VariableInNode $ NumberConstExpr $ IntValue $ "0" :@: Location 1 5], "" :@: Location 1 6) in
             it "can parse \"@in 0\"" $ parseScriptAttributes ("@in 0" :@: initLocation) `shouldBe` expect) >>
         (let expect = Success ([VariableOutNode $ IdentifierRefExpr $ "ovIndex" :@: Location 1 6], "" :@: Location 1 13) in
-            it "can parse \"@out ovIndex\"" $ parseScriptAttributes ("@out ovIndex" :@: initLocation) `shouldBe` expect)
+            it "can parse \"@out ovIndex\"" $ parseScriptAttributes ("@out ovIndex" :@: initLocation) `shouldBe` expect) >>
+        (let expect = Success ([UniformBindNode (NumberConstExpr . IntValue $ "0" :@: Location 1 10) (NumberConstExpr . IntValue $ "0" :@: Location 1 12)], "" :@: Location 1 14) in
+            it "can parse \"@uniform 0 0\"" $ parseScriptAttributes ("@uniform 0 0" :@: initLocation) `shouldBe` expect)
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True
