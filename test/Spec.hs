@@ -93,7 +93,9 @@ main = hspec $ do
         (let expect = Success (AsPat ("input" :@: initLocation) (DataDecompositePat ("Terminal" :@: Location 1 7) []), "" :@: Location 1 15) in
             it "can parse \"input@Terminal\"" $ parsePattern ("input@Terminal" :@: initLocation) `shouldBe` expect) >>
         (let expect = Success (DataDecompositePat ("Vec4" :@: initLocation) [IdentifierBindPat ("x" :@: Location 1 6), AsPat ("y" :@: Location 1 8) (NumberConstPat $ IntValue $ "0" :@: Location 1 12), Wildcard, Wildcard], "" :@: Location 1 17) in
-            it "can parse \"Vec4 x y@0 _ _\"" $ parsePattern ("Vec4 x y @ 0 _ _" :@: initLocation) `shouldBe` expect)
+            it "can parse \"Vec4 x y@0 _ _\"" $ parsePattern ("Vec4 x y @ 0 _ _" :@: initLocation) `shouldBe` expect) >>
+        (let expect = Success (DataDecompositePat ("ExprList" :@: initLocation) [AsPat ("bin" :@: Location 1 10) (ListPat [IdentifierBindPat $ "t" :@: Location 1 15, NumberConstPat $ IntValue $ "10" :@: Location 1 18])], "" :@: Location 1 21) in
+            it "can parse \"ExprList bin@[t, 10]\"" $ parsePattern ("ExprList bin@[t, 10]" :@: initLocation) `shouldBe` expect)
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True
