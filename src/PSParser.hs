@@ -212,7 +212,7 @@ parseBasicType input = Failed input
 data PatternNode =
     IdentifierBindPat LocatedString | NumberConstPat NumberType | MemberRefPat [LocatedString] |
     SymbolIdentPat LocatedString | ListPat [PatternNode] | DataDecompositePat LocatedString [PatternNode] |
-    BinaryPat PatternNode PatternNode PatternNode | AsPat LocatedString PatternNode | Wildcard deriving Eq
+    BinaryPat PatternNode PatternNode PatternNode | AsPat LocatedString PatternNode | Wildcard | TuplePattern [PatternNode] deriving Eq
 instance Show PatternNode where
     show (IdentifierBindPat loc) = "IdentifierBindPat " `showsPrep` loc
     show (NumberConstPat num) = "NumberConstPat " `showsPrep` num
@@ -223,6 +223,7 @@ instance Show PatternNode where
     show (BinaryPat left op right) = "BinaryPat " `showsPrep` left ++ " " `showsPrep` op ++ " " `showsPrep` right
     show (AsPat bindto pat) = show bindto ++ " as " `showsPrep` pat
     show Wildcard = "_"
+    show (TuplePattern pats) = "Tuple" ++ show pats
 
 parsePattern :: LocatedString -> ParseResult PatternNode
 parsePattern = parseDecompositePattern
@@ -244,7 +245,7 @@ parsePatternPrimitives input@(['_'] :@: _) = Success (Wildcard, next input)
 parsePatternPrimitives input@((c:_) :@: _)
     | (c `charClassOf` Other) && isLower c = IdentifierBindPat <$> parseIdentifier input
     | c `charClassOf` Number = NumberConstPat <$> parseNumber input
-parsePatternPrimitives input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parsePattern /> dropSpaces /> ensureCharacter ')'
+parsePatternPrimitives input@(('(':_) :@: _) = parseParenthesedPattern input
 parsePatternPrimitives input@(('[':_) :@: _) = parseListPattern input
 parsePatternPrimitives input = Failed input
 parseListPattern :: LocatedString -> ParseResult PatternNode
@@ -255,6 +256,18 @@ parseListPattern input = dropThenGo input /> dropSpaces /> ignorePrevious (\r ->
         parsePatternListRec (x, rt@((']':_) :@: _)) = Success (x, next rt)
         parsePatternListRec (_, rt) = Failed rt
     )
+parseParenthesedPattern :: LocatedString -> ParseResult PatternNode
+parseParenthesedPattern input = dropThenGo input /> dropSpaces /> branchNext where
+    branchNext (_, r@((')':_) :@: _)) = Success (TuplePattern [], next r)
+    branchNext (_, r) = parsePattern r /> dropSpaces /> branchNextAfterPat
+    branchNextAfterPat (x, r@((')':_) :@: _)) = Success (x, next r)
+    branchNextAfterPat (x, r@((',':_) :@: _)) = Success ([x], next r) /> dropSpaces /> branchInTuple
+    branchNextAfterPat (_, r) = Failed r
+    branchInTuple (x, r@((')':_) :@: _)) = Success (TuplePattern x, next r)
+    branchInTuple (x, r) = (\e -> x ++ [e]) <$> parsePattern r /> dropSpaces /> branchInTupleCon
+    branchInTupleCon (x, r@((')':_) :@: _)) = Success (TuplePattern x, next r)
+    branchInTupleCon (x, r@((',':_) :@: _)) = Success (x, next r) /> dropSpaces /> branchInTuple
+    branchInTupleCon (_, r) = Failed r 
 
 -- Expression --
 data ExpressionNode =
@@ -291,13 +304,17 @@ parsePrimaryTerm input@((c:_) :@: _)
     | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parsePrimaryTerm input = Failed input
 
-parseParenthesedExpressions input = dropThenGo input /> dropSpaces /> ignorePrevious parseExpression /> dropSpaces /> branchNext where
-    branchNext (x, r@((')':_) :@: _)) = Success (x, next r)
-    branchNext (x, r@((',':_) :@: _)) = Success ([x], next r) /> dropSpaces /> branchTupleCont
-    branchNext (_, r) = Failed r
+parseParenthesedExpressions input = dropThenGo input /> dropSpaces /> branchNext where
+    branchNext (_, r@((')':_) :@: _)) = Success (TupleExpr [], next r)
+    branchNext (_, r) = parseExpression r /> dropSpaces /> branchNextTup
+    branchNextTup (x, r@((')':_) :@: _)) = Success (x, next r)
+    branchNextTup (x, r@((',':_) :@: _)) = Success ([x], next r) /> dropSpaces /> branchTuple
+    branchNextTup (_, r) = Failed r
+    branchTuple (x, r@((')':_) :@: _)) = Success (TupleExpr x, next r)
+    branchTuple (x, r) = (\e -> x ++ [e]) <$> parseExpression r /> dropSpaces /> branchTupleCont
     branchTupleCont (x, r@((')':_) :@: _)) = Success (TupleExpr x, next r)
-    branchTupleCont (x, r@((',':_) :@: _)) = Success (x, next r) /> dropSpaces /> branchTupleCont
-    branchTupleCont (x, r) = (\e -> x ++ [e]) <$> parseExpression r /> dropSpaces /> branchTupleCont
+    branchTupleCont (x, r@((',':_) :@: _)) = Success (x, next r) /> dropSpaces /> branchTuple
+    branchTupleCont (_, r) = Failed r
 
 parseFunctionCandidates input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parseExpression /> dropSpaces /> ensureCharacter ')'
 parseFunctionCandidates input@((c:_) :@: _) | c `charClassOf` Other = parseMemberRefOrIdentRef input
@@ -324,6 +341,3 @@ parseListTerm input@(('[':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePr
             ('.':'.':_) :@: _ -> into (iterate next rt !! 2) /> dropSpaces /> ignorePrevious (\res -> (\e -> x : ListRange : [e]) <$> parseExpression res // const (Success (x : [ListRange], res)))
             _ -> Success ([x], rt))
 parseListTerm input = Failed input
-
--- Tuple = '(' Expression ("," / ("," Expression)*) ')'
--- PrimaryTerm = '(' Expression ')'
