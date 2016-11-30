@@ -15,7 +15,7 @@ A purely programmable shader frontend for SPIR-V
 @[in 1] uv :: Vec4
 
 data ProjectionMatrixes = ProjectionMatrixes { persp :: Vec4 }
-@uniform(set = 0, binding = 0) pmatr :: ProjectionMatrixes
+@[uniform 0 0] pmatr :: ProjectionMatrixes
 
 projection :: Vec4 -> Vec4
 projection vin = pmatr.persp * vin
