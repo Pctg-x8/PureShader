@@ -125,7 +125,11 @@ main = hspec $ do
              f2 = FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 17) (TypeVariableNode $ "b" :@: Location 1 22)
              expect = FunctionDeriveTypeNode f1 (TypeConApplyNode (TypeNameNode $ "IO" :@: Location 1 13) f2)
              Success (r, _) = parseType $ "(a -> b) -> IO (a -> b)" :@: initLocation in
-            it "can parse \"(a -> b) -> IO (a -> b)\"" $ r `shouldBe` expect)
+            it "can parse \"(a -> b) -> IO (a -> b)\"" $ r `shouldBe` expect) >>
+        (let expect = TupleType [TypeNameNode $ "Int" :@: Location 1 2, TypeVariableNode $ "a" :@: Location 1 7] in
+            it "can parse \"(Int, a)\"" $ case parseType ("(Int, a)" :@: initLocation) of Success (r, _) -> r `shouldBe` expect) >>
+        (let expect = TupleType [TypeNameNode $ "Int" :@: Location 1 2] in
+            it "can parse \"(Int, )\" as single value tuple" $ case parseType ("(Int, )" :@: initLocation) of Success (r, _) -> r `shouldBe` expect)
         )
 
 parsingSucceeded :: ParseResult a -> Bool
@@ -137,3 +141,4 @@ simplifyTypeSyntaxTree (TypeNameNode (a :@: _)) = TypeNameNode (a :@: initLocati
 simplifyTypeSyntaxTree (TypeVariableNode (a :@: _)) = TypeVariableNode (a :@: initLocation)
 simplifyTypeSyntaxTree (FunctionDeriveTypeNode a b) = FunctionDeriveTypeNode (simplifyTypeSyntaxTree a) (simplifyTypeSyntaxTree b)
 simplifyTypeSyntaxTree (TypeConApplyNode f x) = TypeConApplyNode (simplifyTypeSyntaxTree f) (simplifyTypeSyntaxTree x)
+simplifyTypeSyntaxTree (TupleType xs) = TupleType $ map simplifyTypeSyntaxTree xs

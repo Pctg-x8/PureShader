@@ -181,13 +181,15 @@ parseAttrElement input@(('i':'n':'p':'u':'t':'A':'t':'t':'a':'c':'h':'m':'e':'n'
 parseAttrElement input = Failed input
 
 -- TypeNode --
-data TypeConstructionNode = TypeNameNode LocatedString | TypeVariableNode LocatedString |
+data TypeConstructionNode =
+    TypeNameNode LocatedString | TypeVariableNode LocatedString | TupleType [TypeConstructionNode] |
     FunctionDeriveTypeNode TypeConstructionNode TypeConstructionNode | TypeConApplyNode TypeConstructionNode TypeConstructionNode deriving Eq
 instance Show TypeConstructionNode where
     show (TypeNameNode n) = "TypeName(" ++ show n ++ ")"
     show (TypeVariableNode n) = "TypeVariableNode("  ++ show n ++ ")"
     show (FunctionDeriveTypeNode l r) = "(" ++ show l ++ ")->(" ++ show r ++ ")"
     show (TypeConApplyNode f x) = show f ++ " " ++ show x
+    show (TupleType xs) = "Tuple" ++ show xs
 
 parseType :: LocatedString -> ParseResult TypeConstructionNode
 parseType = parseFunctionDeriveType
@@ -203,10 +205,23 @@ parseTypeConApplying input = parseBasicType input /> dropSpaces /> parseApplying
     parseApplyingRec x = Success x
 
 parseBasicType :: LocatedString -> ParseResult TypeConstructionNode
-parseBasicType input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parseType /> dropSpaces /> ensureCharacter ')'
+parseBasicType input@(('(':_) :@: _) = parseParenthesedType input
 parseBasicType input@((l:_) :@: _)
     | l `charClassOf` Other = (if isUpper l then TypeNameNode else TypeVariableNode) <$> parseIdentifier input
 parseBasicType input = Failed input
+
+parseParenthesedType :: LocatedString -> ParseResult TypeConstructionNode
+parseParenthesedType input = dropThenGo input /> dropSpaces /> ignorePrevious branchEmpty where
+    branchEmpty r@((')':_) :@: _) = Success (TupleType [], next r)
+    branchEmpty r = parseType r /> dropSpaces /> branchTuple
+    branchTuple (x, r@((')':_) :@: _)) = Success (x, next r)
+    branchTuple (x, r@((',':_) :@: _)) = Success ([x], next r) /> dropSpaces /> branchTerm
+    branchTuple (_, r) = Failed r
+    branchTerm (x, r@((')':_) :@: _)) = Success (TupleType x, next r)
+    branchTerm (x, r) = (\e -> x ++ [e]) <$> parseType r /> dropSpaces /> branchNext
+    branchNext (x, r@((')':_) :@: _)) = Success (TupleType x, next r)
+    branchNext (x, r@((',':_) :@: _)) = Success (x, next r) /> dropSpaces /> branchTerm
+    branchNext (_, r) = Failed r
 
 -- PatternNode --
 data PatternNode =
