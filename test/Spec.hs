@@ -72,6 +72,8 @@ main = hspec $ do
             res `shouldBe` ListExpr [NumberConstExpr $ IntValue $ "1" :@: Location 1 2, ListRange]
         it "can parse complex expression" $ let left = parseExpression $ "buildUVs (transformVec4 pos pmatr.persp) $ swizzleByRepeatingToVec4 uv.xz" :@: initLocation in
             left `shouldSatisfy` parsingSucceeded
+        it "can parse \"(3, 4)\"" $ parseExpression ("(3, 4)" :@: initLocation) `shouldBe`
+            Success (TupleExpr [NumberConstExpr $ IntValue $ "3" :@: Location 1 2, NumberConstExpr $ IntValue $ "4" :@: Location 1 5], "" :@: Location 1 7)
     describe "parseScriptAttributes" $
         (let expect = Success ([ImportNode ["Shader" :@: Location 1 9, "Core" :@: Location 1 16]], "" :@: Location 1 20) in
             it "can parse \"@import Shader.Core\"" $ parseScriptAttributes ("@import Shader.Core" :@: initLocation) `shouldBe` expect) >>
@@ -111,7 +113,16 @@ main = hspec $ do
              f2 = FunctionDeriveTypeNode (TypeVariableNode $ "b" :@: Location 1 14) (TypeNameNode $ "Int" :@: Location 1 19)
              expect = FunctionDeriveTypeNode f1 (FunctionDeriveTypeNode f2 (FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 27) (TypeNameNode $ "Int" :@: Location 1 32)))
              Success (r, _) = parseType $ "(a -> b) -> (b -> Int) -> a -> Int" :@: initLocation in
-            it "can parse \"(a -> b) -> (b -> Int) -> a -> Int\"" $ r `shouldBe` expect))
+            it "can parse \"(a -> b) -> (b -> Int) -> a -> Int\"" $ r `shouldBe` expect) >>
+        (let expect = FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: initLocation) (TypeConApplyNode (TypeNameNode $ "IO" :@: Location 1 6) (TypeVariableNode $ "a" :@: Location 1 9))
+             Success (r, _) = parseType $ "a -> IO a" :@: initLocation in
+            it "can parse \"a -> IO a\"" $ r `shouldBe` expect) >>
+        (let f1 = FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 2) (TypeVariableNode $ "b" :@: Location 1 7)
+             f2 = FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 17) (TypeVariableNode $ "b" :@: Location 1 22)
+             expect = FunctionDeriveTypeNode f1 (TypeConApplyNode (TypeNameNode $ "IO" :@: Location 1 13) f2)
+             Success (r, _) = parseType $ "(a -> b) -> IO (a -> b)" :@: initLocation in
+            it "can parse \"(a -> b) -> IO (a -> b)\"" $ r `shouldBe` expect)
+        )
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True
@@ -121,3 +132,4 @@ simplifyTypeSyntaxTree :: TypeConstructionNode -> TypeConstructionNode
 simplifyTypeSyntaxTree (TypeNameNode (a :@: _)) = TypeNameNode (a :@: initLocation)
 simplifyTypeSyntaxTree (TypeVariableNode (a :@: _)) = TypeVariableNode (a :@: initLocation)
 simplifyTypeSyntaxTree (FunctionDeriveTypeNode a b) = FunctionDeriveTypeNode (simplifyTypeSyntaxTree a) (simplifyTypeSyntaxTree b)
+simplifyTypeSyntaxTree (TypeConApplyNode f x) = TypeConApplyNode (simplifyTypeSyntaxTree f) (simplifyTypeSyntaxTree x)

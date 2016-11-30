@@ -181,25 +181,31 @@ parseAttrElement input@(('i':'n':'p':'u':'t':'A':'t':'t':'a':'c':'h':'m':'e':'n'
 parseAttrElement input = Failed input
 
 -- TypeNode --
-data TypeConstructionNode = TypeNameNode LocatedString | TypeVariableNode LocatedString | FunctionDeriveTypeNode TypeConstructionNode TypeConstructionNode deriving Eq
+data TypeConstructionNode = TypeNameNode LocatedString | TypeVariableNode LocatedString |
+    FunctionDeriveTypeNode TypeConstructionNode TypeConstructionNode | TypeConApplyNode TypeConstructionNode TypeConstructionNode deriving Eq
 instance Show TypeConstructionNode where
     show (TypeNameNode n) = "TypeName(" ++ show n ++ ")"
     show (TypeVariableNode n) = "TypeVariableNode("  ++ show n ++ ")"
     show (FunctionDeriveTypeNode l r) = "(" ++ show l ++ ")->(" ++ show r ++ ")"
+    show (TypeConApplyNode f x) = show f ++ " " ++ show x
 
 parseType :: LocatedString -> ParseResult TypeConstructionNode
 parseType = parseFunctionDeriveType
 
 parseFunctionDeriveType :: LocatedString -> ParseResult TypeConstructionNode
-parseFunctionDeriveType input = parseBasicType input /> dropSpaces /> parseFunctionDerivesRec where
+parseFunctionDeriveType input = parseTypeConApplying input /> dropSpaces /> parseFunctionDerivesRec where
     parseFunctionDerivesRec (x, r@(('-':'>':_) :@: _)) = into (iterate next r !! 2) /> dropSpaces /> ignorePrevious parseFunctionDeriveType |=> FunctionDeriveTypeNode x /> dropSpaces
     parseFunctionDerivesRec x = Success x
+
+parseTypeConApplying :: LocatedString -> ParseResult TypeConstructionNode
+parseTypeConApplying input = parseBasicType input /> dropSpaces /> parseApplyingRec where
+    parseApplyingRec (x, r@((c:_) :@: _)) | c == '(' || c `charClassOf` Other = TypeConApplyNode x <$> parseBasicType r /> dropSpaces /> parseApplyingRec
+    parseApplyingRec x = Success x
 
 parseBasicType :: LocatedString -> ParseResult TypeConstructionNode
 parseBasicType input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parseType /> dropSpaces /> ensureCharacter ')'
 parseBasicType input@((l:_) :@: _)
-    | isUpper l = TypeNameNode <$> parseIdentifier input
-    | otherwise = TypeVariableNode <$> parseIdentifier input
+    | l `charClassOf` Other = (if isUpper l then TypeNameNode else TypeVariableNode) <$> parseIdentifier input
 parseBasicType input = Failed input
 
 -- PatternNode --
@@ -254,7 +260,7 @@ parseListPattern input = dropThenGo input /> dropSpaces /> ignorePrevious (\r ->
 data ExpressionNode =
     IdentifierRefExpr LocatedString | NumberConstExpr NumberType | MemberRefExpr [LocatedString] |
     SymbolIdentExpr LocatedString | ListExpr [ExpressionNode] | FunApplyExpr ExpressionNode ExpressionNode |
-    BinaryExpr ExpressionNode ExpressionNode ExpressionNode | ListRange deriving Eq
+    BinaryExpr ExpressionNode ExpressionNode ExpressionNode | ListRange | TupleExpr [ExpressionNode] deriving Eq
 instance Show ExpressionNode where
     show (IdentifierRefExpr loc) = "IdentifierRefExpr " ++ show loc
     show (NumberConstExpr loc) = "NumberConstExpr " ++ show loc
@@ -264,9 +270,10 @@ instance Show ExpressionNode where
     show (FunApplyExpr fx vx) = "FunApplyExpr(" ++ show fx ++ " " ++ show vx ++ ")"
     show (BinaryExpr l op r) = "BinaryExpr(" ++ show l ++ " " ++ show op ++ " " ++ show r ++ ")"
     show ListRange = ".."
+    show (TupleExpr exs) = "Tuple" ++ show exs
 
 parseExpression, parseBinaryExpr, parseUnaryTerm, parsePrimaryTerm, parseFunctionCandidates :: LocatedString -> ParseResult ExpressionNode
-parseMemberRefOrIdentRef, parseInfixOperator, parseListTerm :: LocatedString -> ParseResult ExpressionNode
+parseMemberRefOrIdentRef, parseInfixOperator, parseListTerm, parseParenthesedExpressions :: LocatedString -> ParseResult ExpressionNode
 
 parseExpression = parseBinaryExpr
 
@@ -277,12 +284,20 @@ parseUnaryTerm input = parseFunctionCandidates input /> parseFunApplyArgsRec // 
     parseFunApplyArgsRec (x, r) = into r /> dropSpaces /> ignorePrevious parsePrimaryTerm |=> FunApplyExpr x /> parseFunApplyArgsRec // const (Success (x, r))
 
 parsePrimaryTerm input@(('[':_) :@: _) = parseListTerm input
-parsePrimaryTerm input@(('(':_) :@: _) = dropThenGo input /> dropSpaces' /> ignorePrevious parseExpression /> dropSpaces' /> ensureCharacter ')'
+parsePrimaryTerm input@(('(':_) :@: _) = parseParenthesedExpressions input
 parsePrimaryTerm input@((c:_) :@: _)
     | c `charClassOf` Number = NumberConstExpr <$> parseNumber input
     | c `charClassOf` Other = parseMemberRefOrIdentRef input
     | c `charClassOf` Symbol = SymbolIdentExpr <$> parseSymbolIdent input
 parsePrimaryTerm input = Failed input
+
+parseParenthesedExpressions input = dropThenGo input /> dropSpaces /> ignorePrevious parseExpression /> dropSpaces /> branchNext where
+    branchNext (x, r@((')':_) :@: _)) = Success (x, next r)
+    branchNext (x, r@((',':_) :@: _)) = Success ([x], next r) /> dropSpaces /> branchTupleCont
+    branchNext (_, r) = Failed r
+    branchTupleCont (x, r@((')':_) :@: _)) = Success (TupleExpr x, next r)
+    branchTupleCont (x, r@((',':_) :@: _)) = Success (x, next r) /> dropSpaces /> branchTupleCont
+    branchTupleCont (x, r) = (\e -> x ++ [e]) <$> parseExpression r /> dropSpaces /> branchTupleCont
 
 parseFunctionCandidates input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parseExpression /> dropSpaces /> ensureCharacter ')'
 parseFunctionCandidates input@((c:_) :@: _) | c `charClassOf` Other = parseMemberRefOrIdentRef input
@@ -309,3 +324,6 @@ parseListTerm input@(('[':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePr
             ('.':'.':_) :@: _ -> into (iterate next rt !! 2) /> dropSpaces /> ignorePrevious (\res -> (\e -> x : ListRange : [e]) <$> parseExpression res // const (Success (x : [ListRange], res)))
             _ -> Success ([x], rt))
 parseListTerm input = Failed input
+
+-- Tuple = '(' Expression ("," / ("," Expression)*) ')'
+-- PrimaryTerm = '(' Expression ')'
