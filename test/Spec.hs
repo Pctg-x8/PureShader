@@ -85,7 +85,7 @@ main = hspec $ do
             it "can parse \"@out ovIndex\"" $ parseScriptAttributes ("@out ovIndex" :@: initLocation) `shouldBe` expect) >>
         (let expect = Success ([UniformBindNode (NumberConstExpr . IntValue $ "0" :@: Location 1 10) (NumberConstExpr . IntValue $ "0" :@: Location 1 12)], "" :@: Location 1 13) in
             it "can parse \"@uniform 0 0\"" $ parseScriptAttributes ("@uniform 0 0" :@: initLocation) `shouldBe` expect)
-    describe "parsePattern" $
+    describe "parsePattern" (
         (let expect = Success (IdentifierBindPat $ "x" :@: initLocation, "" :@: Location 1 2) in
             it "can parse \"x\" as bind pattern" $ parsePattern ("x" :@: initLocation) `shouldBe` expect) >>
         (let expect = Success (AsPat ("input" :@: initLocation) Wildcard, "" :@: Location 1 10) in
@@ -95,8 +95,29 @@ main = hspec $ do
         (let expect = Success (DataDecompositePat ("Vec4" :@: initLocation) [IdentifierBindPat ("x" :@: Location 1 6), AsPat ("y" :@: Location 1 8) (NumberConstPat $ IntValue $ "0" :@: Location 1 12), Wildcard, Wildcard], "" :@: Location 1 17) in
             it "can parse \"Vec4 x y@0 _ _\"" $ parsePattern ("Vec4 x y @ 0 _ _" :@: initLocation) `shouldBe` expect) >>
         (let expect = Success (DataDecompositePat ("ExprList" :@: initLocation) [AsPat ("bin" :@: Location 1 10) (ListPat [IdentifierBindPat $ "t" :@: Location 1 15, NumberConstPat $ IntValue $ "10" :@: Location 1 18])], "" :@: Location 1 21) in
-            it "can parse \"ExprList bin@[t, 10]\"" $ parsePattern ("ExprList bin@[t, 10]" :@: initLocation) `shouldBe` expect)
+            it "can parse \"ExprList bin@[t, 10]\"" $ parsePattern ("ExprList bin@[t, 10]" :@: initLocation) `shouldBe` expect))
+    describe "parseType" (
+        (let expect = TypeNameNode $ "Located" :@: initLocation; Success (r, _) = parseType $ "Located" :@: initLocation in
+            it "can parse \"Located\" as TypeName" $ r `shouldBe` expect) >>
+        (let expect = TypeVariableNode $ "a" :@: initLocation; Success (r, _) = parseType $ "a" :@: initLocation in
+            it "can parse \"a\" as TypeVariable" $ r `shouldBe` expect) >>
+        (let expect = FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: initLocation) $ FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 6) (TypeNameNode $ "Int" :@: Location 1 11)
+             Success (r, _) = parseType $ "a -> a -> Int" :@: initLocation in
+            it "can parse \"a -> a -> Int\"" $ r `shouldBe` expect) >>
+        (let Success (r2, _) = parseType $ "a -> (a -> Int)" :@: initLocation
+             Success (r, _) = parseType $ "a -> a -> Int" :@: initLocation in
+            it "can parse \"a -> a -> Int\" same as \"a -> (a -> Int)\"" $ simplifyTypeSyntaxTree r `shouldBe` simplifyTypeSyntaxTree r2) >>
+        (let f1 = FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 2) (TypeVariableNode $ "b" :@: Location 1 7)
+             f2 = FunctionDeriveTypeNode (TypeVariableNode $ "b" :@: Location 1 14) (TypeNameNode $ "Int" :@: Location 1 19)
+             expect = FunctionDeriveTypeNode f1 (FunctionDeriveTypeNode f2 (FunctionDeriveTypeNode (TypeVariableNode $ "a" :@: Location 1 27) (TypeNameNode $ "Int" :@: Location 1 32)))
+             Success (r, _) = parseType $ "(a -> b) -> (b -> Int) -> a -> Int" :@: initLocation in
+            it "can parse \"(a -> b) -> (b -> Int) -> a -> Int\"" $ r `shouldBe` expect))
 
 parsingSucceeded :: ParseResult a -> Bool
 parsingSucceeded (Success _) = True
 parsingSucceeded _ = False
+
+simplifyTypeSyntaxTree :: TypeConstructionNode -> TypeConstructionNode
+simplifyTypeSyntaxTree (TypeNameNode (a :@: _)) = TypeNameNode (a :@: initLocation)
+simplifyTypeSyntaxTree (TypeVariableNode (a :@: _)) = TypeVariableNode (a :@: initLocation)
+simplifyTypeSyntaxTree (FunctionDeriveTypeNode a b) = FunctionDeriveTypeNode (simplifyTypeSyntaxTree a) (simplifyTypeSyntaxTree b)

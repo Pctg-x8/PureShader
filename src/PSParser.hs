@@ -2,7 +2,7 @@
 
 module PSParser (Location(Location), LocatedString(..), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
     NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes,
-    PatternNode(..), parsePattern) where
+    PatternNode(..), parsePattern, TypeConstructionNode(..), parseType) where
 
 import Data.Char (isLower, isUpper)
 
@@ -157,15 +157,15 @@ instance Show AttributeNode where
     show (InputAttachmentBindNode b s i) = "InputAttachmentBindNode binding=" `showsPrep` b ++ " set=" `showsPrep` s ++ " index=" `showsPrep` i
 
 parseScriptAttributes :: LocatedString -> ParseResult [AttributeNode]
-parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious (\r -> case r of
-    ('[':_) :@: _ -> parseElementsInBracket r
-    _ -> (: []) <$> parseAttrElement r) where
-        parseElementsInBracket r = dropThenGo r /> dropSpaces' /> ignorePrevious parseBracketNext
-        parseBracketNext r@((']':_) :@: _) = Success ([], next r)
-        parseBracketNext r = (: []) <$> parseAttrElement r /> dropSpaces /> parseElementsRecursive
-        parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r /> dropSpaces' /> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) /> dropSpaces /> parseElementsRecursive
-        parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
-        parseElementsRecursive (_, r) = Failed r
+parseScriptAttributes input@(('@':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious bracketOrSingle where
+    bracketOrSingle r@(('[':_) :@: _) = parseElementsInBracket r
+    bracketOrSingle r = (: []) <$> parseAttrElement r
+    parseElementsInBracket r = dropThenGo r /> dropSpaces' /> ignorePrevious parseBracketNext
+    parseBracketNext r@((']':_) :@: _) = Success ([], next r)
+    parseBracketNext r = (: []) <$> parseAttrElement r /> dropSpaces /> parseElementsRecursive
+    parseElementsRecursive (x, r@((',':_) :@: _)) = dropThenGo r /> dropSpaces' /> ignorePrevious parseAttrElement |=> (\e -> x ++ [e]) /> dropSpaces /> parseElementsRecursive
+    parseElementsRecursive (x, r@((']':_) :@: _)) = Success (x, next r)
+    parseElementsRecursive (_, r) = Failed r
 parseScriptAttributes (_ :@: loc) = error $ "Parsing invalid string beginning from " ++ show loc
 parseAttrElement :: LocatedString -> ParseResult AttributeNode
 parseAttrElement input@(('i':'m':'p':'o':'r':'t':c:_) :@: _)
@@ -179,6 +179,28 @@ parseAttrElement input@(('u':'n':'i':'f':'o':'r':'m':c:_) :@: _) | c `charClassO
 parseAttrElement input@(('i':'n':'p':'u':'t':'A':'t':'t':'a':'c':'h':'m':'e':'n':'t':c:_) :@: _) | c `charClassOf` Ignore = into (iterate next input !! 15) /> dropSpaces />
     ignorePrevious parseExpression /> dropSpaces /> (\(x, r) -> (,) x <$> parseExpression r) /> dropSpaces /> (\((x, y), r) -> InputAttachmentBindNode x y <$> parseExpression r)
 parseAttrElement input = Failed input
+
+-- TypeNode --
+data TypeConstructionNode = TypeNameNode LocatedString | TypeVariableNode LocatedString | FunctionDeriveTypeNode TypeConstructionNode TypeConstructionNode deriving Eq
+instance Show TypeConstructionNode where
+    show (TypeNameNode n) = "TypeName(" ++ show n ++ ")"
+    show (TypeVariableNode n) = "TypeVariableNode("  ++ show n ++ ")"
+    show (FunctionDeriveTypeNode l r) = "(" ++ show l ++ ")->(" ++ show r ++ ")"
+
+parseType :: LocatedString -> ParseResult TypeConstructionNode
+parseType = parseFunctionDeriveType
+
+parseFunctionDeriveType :: LocatedString -> ParseResult TypeConstructionNode
+parseFunctionDeriveType input = parseBasicType input /> dropSpaces /> parseFunctionDerivesRec where
+    parseFunctionDerivesRec (x, r@(('-':'>':_) :@: _)) = into (iterate next r !! 2) /> dropSpaces /> ignorePrevious parseFunctionDeriveType |=> FunctionDeriveTypeNode x /> dropSpaces
+    parseFunctionDerivesRec x = Success x
+
+parseBasicType :: LocatedString -> ParseResult TypeConstructionNode
+parseBasicType input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parseType /> dropSpaces /> ensureCharacter ')'
+parseBasicType input@((l:_) :@: _)
+    | isUpper l = TypeNameNode <$> parseIdentifier input
+    | otherwise = TypeVariableNode <$> parseIdentifier input
+parseBasicType input = Failed input
 
 -- PatternNode --
 data PatternNode =
@@ -197,7 +219,7 @@ instance Show PatternNode where
     show Wildcard = "_"
 
 parsePattern :: LocatedString -> ParseResult PatternNode
-parsePattern input = parseDecompositePattern input
+parsePattern = parseDecompositePattern
 
 parseDecompositePattern :: LocatedString -> ParseResult PatternNode
 parseDecompositePattern input@((c:_) :@: _) | isUpper c = parseIdentifier input /> dropSpaces />  (\(d, r) -> DataDecompositePat d <$> parseArgsRecursive ([], r)) where
@@ -206,7 +228,7 @@ parseDecompositePattern input = parseAsPattern input
 parseAsPattern :: LocatedString -> ParseResult PatternNode
 parseAsPattern input@((c:_) :@: _) | c `charClassOf` Other = parseIdentifier input /> dropSpaces /> (\(x, r) -> case r of
     ('@':_) :@: _ -> dropThenGo r /> dropSpaces /> (\(_, rt) -> case rt of
-        (c:_) :@: _ | isUpper c -> AsPat x . (`DataDecompositePat` []) <$> parseIdentifier rt
+        (nc:_) :@: _ | isUpper nc -> AsPat x . (`DataDecompositePat` []) <$> parseIdentifier rt
         _ -> AsPat x <$> parsePatternPrimitives rt)
     _ -> parsePatternPrimitives input)
 parseAsPattern input = parsePatternPrimitives input
@@ -214,7 +236,7 @@ parsePatternPrimitives :: LocatedString -> ParseResult PatternNode
 parsePatternPrimitives input@(('_':c:_) :@: _) | not (c `charClassOf` Other || c `charClassOf` Number) && (c /= '_') = Success (Wildcard, next input)
 parsePatternPrimitives input@(['_'] :@: _) = Success (Wildcard, next input)
 parsePatternPrimitives input@((c:_) :@: _)
-    | (c `charClassOf` Other) && (isLower c) = IdentifierBindPat <$> parseIdentifier input
+    | (c `charClassOf` Other) && isLower c = IdentifierBindPat <$> parseIdentifier input
     | c `charClassOf` Number = NumberConstPat <$> parseNumber input
 parsePatternPrimitives input@(('(':_) :@: _) = dropThenGo input /> dropSpaces /> ignorePrevious parsePattern /> dropSpaces /> ensureCharacter ')'
 parsePatternPrimitives input@(('[':_) :@: _) = parseListPattern input
