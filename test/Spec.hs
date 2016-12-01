@@ -12,9 +12,12 @@ describeBlockParserSubjects = do
     it "takes each indent exactly" $ do
       indentLevel "  0" `shouldBe` 2
       indentLevel "3 + 2" `shouldBe` 0
-  describe "takeFormula" $
+  describe "takeFormula" $ do
     it "takes single line" $
-      takeFormula 0 ("3 + 2\npp" :@: initLocation) `shouldBe` Formula ("3 + 2" :@: initLocation)
+      takeFormula 0 ("3 + 2\npp" :@: initLocation) `shouldBe` Success (FormulaBlock ("3 + 2" :@: initLocation) [] [], "pp" :@: Location 2 1)
+    it "takes multiple line as single line block" $ do
+      takeFormula 0 ("3 + 2\n  + 4" :@: initLocation) `shouldBe` Success (FormulaBlock ("3 + 2+ 4" :@: initLocation) [] [], "" :@: Location 2 6)
+      takeFormula 1 ("3 + 2\n    + 4\n\n      f x" :@: initLocation) `shouldBe` Success (FormulaBlock ("3 + 2+ 4" :@: initLocation) [] [], "\n      f x" :@: Location 3 1)
 
 describePSParserSubjects = do
   describe "dropComments" $
@@ -140,9 +143,9 @@ describePSParserSubjects = do
          Success (r, _) = parseType $ "(a -> b) -> IO (a -> b)" :@: initLocation in
       it "can parse \"(a -> b) -> IO (a -> b)\"" $ r `shouldBe` expect) >>
     (let expect = TupleType [TypeNameNode $ "Int" :@: Location 1 2, TypeVariableNode $ "a" :@: Location 1 7] in
-      it "can parse \"(Int, a)\"" $ case parseType ("(Int, a)" :@: initLocation) of Success (r, _) -> r `shouldBe` expect) >>
+      it "can parse \"(Int, a)\"" $ let Success (r, _) = parseType ("(Int, a)" :@: initLocation) in r `shouldBe` expect) >>
     (let expect = TupleType [TypeNameNode $ "Int" :@: Location 1 2] in
-      it "can parse \"(Int, )\" as single value tuple" $ case parseType ("(Int, )" :@: initLocation) of Success (r, _) -> r `shouldBe` expect)
+      it "can parse \"(Int, )\" as single value tuple" $ let Success (r, _) = parseType ("(Int, )" :@: initLocation) in r `shouldBe` expect)
     )
 
 parsingSucceeded :: ParseResult a -> Bool
