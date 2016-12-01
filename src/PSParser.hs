@@ -1,29 +1,12 @@
 {-# LANGUAGE TypeOperators #-}
 
-module PSParser (Location(Location), LocatedString(..), initLocation, ParseResult(Success, Failed), parseNumber, parseIdentifier,
+module PSParser (ParseResult(Success, Failed), parseNumber, parseIdentifier,
     NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes,
     PatternNode(..), parsePattern, TypeConstructionNode(..), parseType) where
 
 import Data.Char (isLower, isUpper)
+import Common
 
-isSpace :: Char -> Bool
-isSpace c = c `elem` " \t"
-
-data Location = Location { line :: Int, column :: Int } deriving Eq
-instance Show Location where
-    show loc = line_str ++ ":" ++ column_str where
-        line_str = show $ line loc
-        column_str = show $ column loc
--- A slice of string with its location on source
-data LocatedString = String :@: Location deriving Eq
-instance Show LocatedString where
-    show (str :@: loc) = str ++ " at " ++ show loc
-class Concatable a where
-    (~~) :: a -> a -> a
-instance Concatable LocatedString where
-    (sa :@: l) ~~ (sb :@: _) = (sa ++ sb) :@: l
-append :: LocatedString -> String -> LocatedString
-append (sa :@: l) sb = (sa ++ sb) :@: l
 -- The result of Parser
 data ParseResult a = Success (a, LocatedString) | Failed LocatedString deriving Eq
 instance Show a => Show (ParseResult a) where
@@ -54,15 +37,6 @@ infixl 3 |=>
 (|=>) partialfunc reducer x = reducer <$> partialfunc x
 -- reduce = (|=>)
 
-initLocation :: Location
-initLocation = Location 1 1
-forward :: Location -> Location
-forward (Location l c) = Location l (c + 1)
-forwardN :: Int -> Location -> Location
-forwardN n (Location l c) = Location l (c + n)
-newLine :: Location -> Location
-newLine (Location l _) = Location (l + 1) 1
-
 -- LocatedString operations --
 next :: LocatedString -> LocatedString
 next (('\n':xs) :@: loc) = xs :@: newLine loc
@@ -80,24 +54,6 @@ countSatisfyElements f = impl 0 where
     impl n l = case l of
         (x:xs) | f x -> let nx = n + 1 in nx `seq` impl nx xs
         _ -> n
-
--- Character Classifications --
-data PairDirection = Open | Close deriving Eq
-data CharacterClass = Ignore | InternalSymbol | LineFeed | Parenthese PairDirection | Bracket PairDirection | Symbol | Number | Other deriving Eq
-characterClass :: Char -> CharacterClass
-characterClass c
-    | isSpace c = Ignore
-    | c == '\n' = LineFeed
-    | c == '(' = Parenthese Open
-    | c == ')' = Parenthese Close
-    | c == '[' = Bracket Open
-    | c == ']' = Bracket Close
-    | c `elem` "+-*/<>$?~@" = Symbol
-    | c `elem` ".`," = InternalSymbol
-    | c `elem` ['0'..'9'] = Number
-    | otherwise = Other
-charClassOf :: Char -> CharacterClass -> Bool
-charClassOf c t = characterClass c == t
 
 isPartOfIdentifier :: Char -> Bool
 isPartOfIdentifier c = characterClass c `elem` [Other, Number]
