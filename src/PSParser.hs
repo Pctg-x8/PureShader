@@ -24,9 +24,6 @@ countSatisfyElements f = impl 0 where
         (x:xs) | f x -> let nx = n + 1 in nx `seq` impl nx xs
         _ -> n
 
-isPartOfIdentifier :: Char -> Bool
-isPartOfIdentifier c = characterClass c `elem` [Other, Number]
-
 -- Parsing primitives generating void --
 dropSpaces' :: (a, LocatedString) -> ParseResult a      -- Allows new line
 dropSpaces' (v, cs@('-':'-':c:_) :@: loc)

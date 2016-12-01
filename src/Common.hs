@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Common(Location(..), LocatedString(..), Concatable(..), append, initLocation, forward, forwardN, newLine,
-  PairDirection(..), CharacterClass(..), characterClass, charClassOf) where
+  PairDirection(..), CharacterClass(..), characterClass, charClassOf, isPartOfIdentifier) where
 
 -- Common Structures
 
@@ -46,3 +46,6 @@ characterClass c
     | otherwise = Other
 charClassOf :: Char -> CharacterClass -> Bool
 charClassOf c t = characterClass c == t
+
+isPartOfIdentifier :: Char -> Bool
+isPartOfIdentifier c = characterClass c `elem` [Other, Number]
