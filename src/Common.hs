@@ -19,7 +19,7 @@ newLine (Location l _) = Location (l + 1) 1
 
 -- String with Location
 data LocatedString = String :@: Location deriving Eq
-instance Show LocatedString where show (s :@: l) = s ++ " at " ++ show l
+instance Show LocatedString where show (s :@: l) = "\"" ++ s ++ "\" at " ++ show l
 
 -- Concatenate Operations
 class Concatable a where

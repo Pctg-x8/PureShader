@@ -24,14 +24,18 @@ describeBlockParserSubjects = do
         FormulaBlock ("list = 3" :@: initLocation) [] [], FormulaBlock ("trail a = b a+ 3" :@: Location 2 3) [] [], FormulaBlock ("traits = 0" :@: Location 4 3) [] []
       ], "" :@: Location 4 13)
     it "takes where clause inside" $ do
-        takeFormula 0 ("f x + 2 where\n  f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2 " :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 2 3) [] []] [], "" :@: Location 2 14)
-        takeFormula 0 ("f x + 2 where f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2 " :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 1 15) [] []] [], "" :@: Location 1 26)
-        takeFormula 0 ("(x /> 2) + 2 where(/>) a b = a * b" :@: initLocation) `shouldBe` Success (FormulaBlock ("(x /> 2) + 2 " :@: initLocation) [FormulaBlock ("(/>) a b = a * b" :@: Location 1 19) [] []] [], "" :@: Location 1 35)
-        takeFormula 0 ("f x + 2 where \n  f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2 " :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 2 3) [] []] [], "" :@: Location 2 14)
-        takeFormula 0 ("f x + 2\n where\n  f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2" :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 3 3) [] []] [], "" :@: Location 3 14)
-        takeFormula 2 ("f x + 2\n where\n  f a = a + 3" :@: Location 1 3) `shouldBe` Success (FormulaBlock ("f x + 2" :@: Location 1 3) [FormulaBlock ("f a = a + 3" :@: Location 3 3) [] []] [], "" :@: Location 3 14)
-        takeFormula 0 ("f x + 2\n where f a = 3 + 4\n       g = f . (* 3)" :@: initLocation) `shouldBe`
-          Success (FormulaBlock ("f x + 2" :@: initLocation) [FormulaBlock ("f a = 3 + 4" :@: Location 2 8) [] [], FormulaBlock ("g = f . (* 3)" :@: Location 3 8) [] []] [], "" :@: Location 3 21)
+      takeFormula 0 ("f x + 2 where\n  f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2 " :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 2 3) [] []] [], "" :@: Location 2 14)
+      takeFormula 0 ("f x + 2 where f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2 " :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 1 15) [] []] [], "" :@: Location 1 26)
+      takeFormula 0 ("(x /> 2) + 2 where(/>) a b = a * b" :@: initLocation) `shouldBe` Success (FormulaBlock ("(x /> 2) + 2 " :@: initLocation) [FormulaBlock ("(/>) a b = a * b" :@: Location 1 19) [] []] [], "" :@: Location 1 35)
+      takeFormula 0 ("f x + 2 where \n  f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2 " :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 2 3) [] []] [], "" :@: Location 2 14)
+      takeFormula 0 ("f x + 2\n where\n  f a = a + 3" :@: initLocation) `shouldBe` Success (FormulaBlock ("f x + 2" :@: initLocation) [FormulaBlock ("f a = a + 3" :@: Location 3 3) [] []] [], "" :@: Location 3 14)
+      takeFormula 2 ("f x + 2\n where\n  f a = a + 3" :@: Location 1 3) `shouldBe` Success (FormulaBlock ("f x + 2" :@: Location 1 3) [FormulaBlock ("f a = a + 3" :@: Location 3 3) [] []] [], "" :@: Location 3 14)
+      takeFormula 0 ("f x + 2\n where f a = 3 + 4\n       g = f . (* 3)" :@: initLocation) `shouldBe`
+        Success (FormulaBlock ("f x + 2" :@: initLocation) [FormulaBlock ("f a = 3 + 4" :@: Location 2 8) [] [], FormulaBlock ("g = f . (* 3)" :@: Location 3 8) [] []] [], "" :@: Location 3 21)
+    it "takes let clause ahead of its body" $ do
+      takeFormula 0 ("let f x = x + 3 in 2 * f 4" :@: initLocation) `shouldBe` Success (FormulaBlock ("2 * f 4" :@: Location 1 20) [] [FormulaBlock ("f x = x + 3 " :@: Location 1 5) [] []], "" :@: Location 1 27)
+      takeFormula 0 ("let f x = x + 3 in\n  2 * f 4" :@: initLocation) `shouldBe` Success (FormulaBlock ("2 * f 4" :@: Location 2 3) [] [FormulaBlock ("f x = x + 3 " :@: Location 1 5) [] []], "" :@: Location 2 10)
+      takeFormula 2 ("let f x = x + 3\n in\n  2 * f 4" :@: Location 1 3) `shouldBe` Success (FormulaBlock ("2 * f 4" :@: Location 3 3) [] [FormulaBlock ("f x = x + 3" :@: Location 1 5) [] []], "" :@: Location 3 10)
 
 describePSParserSubjects = do
   describe "dropComments" $
