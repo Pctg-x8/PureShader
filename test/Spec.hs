@@ -1,5 +1,6 @@
 import Test.Hspec
 import Common
+import ChainedParser
 import BlockParser
 import PSParser
 
@@ -18,6 +19,10 @@ describeBlockParserSubjects = do
     it "takes multiple line as single line block" $ do
       takeFormula 0 ("3 + 2\n  + 4" :@: initLocation) `shouldBe` Success (FormulaBlock ("3 + 2+ 4" :@: initLocation) [] [], "" :@: Location 2 6)
       takeFormula 1 ("3 + 2\n    + 4\n\n      f x" :@: initLocation) `shouldBe` Success (FormulaBlock ("3 + 2+ 4" :@: initLocation) [] [], "\n      f x" :@: Location 3 1)
+    it "takes multiple formula indented same as first" $
+      takeClauseFormulaList 2 ("list = 3\n  trail a = b a\n    + 3\n  traits = 0" :@: initLocation) `shouldBe` Success ([
+        FormulaBlock ("list = 3" :@: initLocation) [] [], FormulaBlock ("trail a = b a+ 3" :@: Location 2 3) [] [], FormulaBlock ("traits = 0" :@: Location 4 3) [] []
+      ], "" :@: Location 4 13)
 
 describePSParserSubjects = do
   describe "dropComments" $

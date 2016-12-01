@@ -1,41 +1,10 @@
-{-# LANGUAGE TypeOperators #-}
-
-module PSParser (ParseResult(Success, Failed), parseNumber, parseIdentifier,
+module PSParser (parseNumber, parseIdentifier,
     NumberType(..), ExpressionNode(..), parseExpression, AttributeNode(..), parseScriptAttributes,
     PatternNode(..), parsePattern, TypeConstructionNode(..), parseType) where
 
 import Data.Char (isLower, isUpper)
 import Common
-
--- The result of Parser
-data ParseResult a = Success (a, LocatedString) | Failed LocatedString deriving Eq
-instance Show a => Show (ParseResult a) where
-    show (Success (v, r)) = "Success " ++ show v ++ " remains " ++ show r
-    show (Failed r) = "Failed remaining " ++ show r
-instance Functor ParseResult where
-    fmap f (Success (v, r)) = Success (f v, r)
-    fmap _ (Failed r) = Failed r
--- Lifts up into parser chain as remainings
-into :: LocatedString -> ParseResult ()
-into l = Success ((), l)
-
--- Continuous Parsing
-(/>) :: ParseResult a -> ((a, LocatedString) -> ParseResult b) -> ParseResult b
-infixl 2 />
-(Success x) /> f = f x
-(Failed r) /> _ = Failed r
--- andThen = (/>)
--- Alternate Parsing
-(//) :: ParseResult a -> (LocatedString -> ParseResult a) -> ParseResult a
-infixl 1 //
-r@(Success _) // _ = r
-(Failed r) // f = f r
--- orElse = (//)
--- Reducing a value
-(|=>) :: ((c, LocatedString) -> ParseResult a) -> (a -> b) -> (c, LocatedString) -> ParseResult b
-infixl 3 |=>
-(|=>) partialfunc reducer x = reducer <$> partialfunc x
--- reduce = (|=>)
+import ChainedParser
 
 -- LocatedString operations --
 next :: LocatedString -> LocatedString
